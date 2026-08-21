@@ -1,0 +1,42 @@
+# Секреты и локальные настройки
+.env
+.env.*
+!.env.example
+
+# Скомпилированные файлы Go
+/bin/
+/build/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Покрытие тестами
+coverage.out
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# GoLand / IntelliJ IDEA
+.idea/
+*.iml
+
+# Visual Studio Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Логи и временные файлы
+*.log
+tmp/
+temp/
+
+# Локальные данные Docker/PostgreSQL
+postgres_data/
