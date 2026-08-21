@@ -1,0 +1,152 @@
+@startuml
+title Voice Standup Bot — логическая схема БД
+hide methods
+hide stereotypes
+skinparam linetype ortho
+
+entity users {
+  * id : uuid <<PK>>
+  --
+  * telegram_user_id : bigint <<UQ>>
+  username : varchar
+  display_name : varchar
+  locale : varchar
+  * created_at : timestamptz
+  deleted_at : timestamptz
+}
+
+entity teams {
+  * id : uuid <<PK>>
+  --
+  * name : varchar
+  * telegram_chat_id : bigint <<UQ>>
+  * timezone : varchar
+  * publish_local_time : time
+  * workdays : smallint[]
+  * late_policy : varchar
+  * created_at : timestamptz
+}
+
+entity team_members {
+  * team_id : uuid <<PK, FK>>
+  * user_id : uuid <<PK, FK>>
+  --
+  * role : varchar
+  * status : varchar
+  joined_at : timestamptz
+}
+
+entity telegram_updates {
+  * update_id : bigint <<PK>>
+  --
+  received_at : timestamptz
+  processed_at : timestamptz
+  error_code : varchar
+}
+
+entity submissions {
+  * id : uuid <<PK>>
+  --
+  * team_id : uuid <<FK>>
+  * user_id : uuid <<FK>>
+  * standup_date : date
+  * status : varchar
+  telegram_chat_id : bigint
+  telegram_message_id : bigint
+  active_report_version_id : uuid <<FK, nullable>>
+  * created_at : timestamptz
+  updated_at : timestamptz
+  --
+  UQ(team_id, user_id, standup_date)
+}
+
+entity voice_recordings {
+  * id : uuid <<PK>>
+  --
+  * submission_id : uuid <<FK>>
+  * telegram_file_id : varchar
+  telegram_file_unique_id : varchar
+  object_key : varchar
+  duration_seconds : int
+  mime_type : varchar
+  retention_until : timestamptz
+  created_at : timestamptz
+  deleted_at : timestamptz
+}
+
+entity transcripts {
+  * id : uuid <<PK>>
+  --
+  * recording_id : uuid <<FK>>
+  * provider : varchar
+  model : varchar
+  * raw_text : text
+  language : varchar
+  confidence : numeric
+  created_at : timestamptz
+}
+
+entity report_versions {
+  * id : uuid <<PK>>
+  --
+  * submission_id : uuid <<FK>>
+  transcript_id : uuid <<FK, nullable>>
+  * version_no : int
+  done_text : text
+  plans_text : text
+  blockers_text : text
+  * state : varchar
+  source : varchar
+  model : varchar
+  confirmed_at : timestamptz
+  created_at : timestamptz
+  --
+  UQ(submission_id, version_no)
+}
+
+entity digests {
+  * id : uuid <<PK>>
+  --
+  * team_id : uuid <<FK>>
+  * standup_date : date
+  * status : varchar
+  rendered_text : text
+  telegram_message_id : bigint
+  published_at : timestamptz
+  created_at : timestamptz
+  --
+  UQ(team_id, standup_date)
+}
+
+entity digest_items {
+  * digest_id : uuid <<PK, FK>>
+  * report_version_id : uuid <<PK, FK>>
+  --
+  * position : int
+}
+
+users ||--o{ team_members
+teams ||--o{ team_members
+teams ||--o{ submissions
+users ||--o{ submissions
+submissions ||--o{ voice_recordings
+voice_recordings ||--o| transcripts
+submissions ||--o{ report_versions
+transcripts |o--o{ report_versions
+teams ||--o{ digests
+digests ||--o{ digest_items
+report_versions ||--o{ digest_items
+report_versions |o--o| submissions : active version
+
+note right of teams
+  timezone — IANA, например Europe/Moscow.
+  publish_local_time интерпретируется
+  в часовом поясе команды.
+end note
+
+note bottom of voice_recordings
+  object_key может быть NULL после удаления аудио;
+  метаданные сохраняются для аудита обработки.
+end note
+
+@enduml

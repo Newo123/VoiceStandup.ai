@@ -1,0 +1,87 @@
+@startuml
+title Voice Standup Bot — основной сценарий
+
+actor "Участник" as User
+participant "Telegram" as TG
+participant "Bot API" as Bot
+database "PostgreSQL" as DB
+queue "Очередь задач" as Queue
+participant "Processing Worker" as Worker
+participant "Transcription Service" as STT
+participant "NLU / LLM" as LLM
+collections "Object Storage" as Storage
+participant "Scheduler" as Scheduler
+actor "Командный чат" as TeamChat
+
+== Сбор статуса ==
+User -> TG: Отправляет voice в личный чат
+TG -> Bot: Webhook update
+Bot -> DB: Зарегистрировать update_id
+
+alt update_id уже обработан
+  Bot --> TG: 200 OK
+else новый update
+  Bot -> DB: Создать submission (RECEIVED)
+  Bot -> Queue: Поставить задачу обработки
+  Bot --> TG: 200 OK
+  Bot -> TG: «Обрабатываю запись…»
+end
+
+Queue -> Worker: Задача обработки
+Worker -> TG: Получить file_path и скачать аудио
+TG --> Worker: Аудиофайл
+Worker -> Storage: Сохранить временный объект
+Storage --> Worker: object_key
+Worker -> STT: Транскрибировать аудио
+
+alt транскрибация успешна
+  STT --> Worker: Текст, язык, confidence
+  Worker -> DB: Сохранить transcript
+  Worker -> LLM: Структурировать текст
+  LLM --> Worker: done / plans / blockers
+  Worker -> DB: Создать report_version (DRAFT)
+  Worker -> Bot: Черновик готов
+  Bot -> TG: Показать черновик и кнопки
+  TG -> User: Подтвердить / Редактировать / Перезаписать
+
+  alt пользователь подтверждает
+    User -> TG: «Подтвердить»
+    TG -> Bot: Callback query
+    Bot -> DB: report_version = CONFIRMED
+    Bot -> TG: Подтверждение принято
+  else пользователь редактирует
+    User -> TG: Исправленный текст
+    TG -> Bot: Message update
+    Bot -> DB: Новая report_version (CONFIRMED)
+    Bot -> TG: Изменения сохранены
+  else пользователь перезаписывает
+    User -> TG: Новое voice
+    TG -> Bot: Новый webhook update
+    note right of Bot
+      Создаётся новая попытка;
+      предыдущая остаётся в истории.
+    end note
+  end
+else ошибка обработки
+  STT --> Worker: Ошибка / низкая уверенность
+  Worker -> DB: submission = FAILED
+  Worker -> Bot: Сообщить об ошибке
+  Bot -> TG: Предложить повторить или ввести текст
+end
+
+== Публикация сводки ==
+Scheduler -> DB: Найти команды с наступившим publish_at
+DB --> Scheduler: Список команд и standup_date
+loop для каждой команды
+  Scheduler -> DB: Заблокировать уникальный digest
+  Scheduler -> DB: Получить подтверждённые отчёты
+  DB --> Scheduler: Статусы участников
+  Scheduler -> Bot: Опубликовать сводку
+  Bot -> TG: sendMessage(chat_id, digest)
+  TG -> TeamChat: Единый стендап-отчёт
+  TG --> Bot: message_id
+  Bot -> DB: digest = PUBLISHED, message_id
+end
+
+@enduml
+
