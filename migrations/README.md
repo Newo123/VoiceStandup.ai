@@ -165,7 +165,7 @@ docker compose exec postgres \
 
 ```bash
 docker compose exec postgres \
-  psql -U voice_standup -d voice_standup -c '\d+ submissions'
+  psql -U voice_standup -d voice_standup -c '\d+ users'
 ```
 
 ## Служебная таблица Goose
