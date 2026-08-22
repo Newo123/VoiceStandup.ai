@@ -1,0 +1,89 @@
+@startuml
+title Voice Standup Bot — минимальная схема БД
+
+hide methods
+hide stereotypes
+skinparam linetype ortho
+
+entity users {
+- id : uuid <<PK>>
+  --
+- telegram_user_id : bigint <<UQ>>
+  username : varchar
+  display_name : varchar
+- created_at : timestamptz
+  deleted_at : timestamptz
+}
+
+entity teams {
+- id : uuid <<PK>>
+  --
+- name : varchar
+- telegram_chat_id : bigint <<UQ>>
+- timezone : varchar
+- publish_local_time : time
+- workdays : smallint[]
+- late_policy : varchar
+  last_published_standup_date : date
+- created_at : timestamptz
+  deleted_at : timestamptz
+}
+
+entity team_members {
+- team_id : uuid <<PK, FK>>
+- user_id : uuid <<PK, FK>>
+  --
+- role : varchar
+- is_owner: bool
+- full_name: varchar
+- status : varchar
+  created_at : timestamptz
+  deleted_at : timestamptz
+}
+
+entity telegram_updates {
+- update_id : bigint <<PK>>
+  --
+- received_at : timestamptz
+}
+
+entity submissions {
+- id : uuid <<PK>>
+  --
+- team_id : uuid <<FK>>
+- user_id : uuid <<FK>>
+- standup_date : date
+- status : varchar
+  done_text : text
+  plans_text : text
+  blockers_text : text
+  confirmed_at : timestamptz
+- created_at : timestamptz
+  updated_at : timestamptz
+  --
+  UQ(team_id, user_id, standup_date)
+}
+
+users ||--o{ team_members
+teams ||--o{ team_members
+users ||--o{ submissions
+teams ||--o{ submissions
+
+note right of teams
+  timezone — IANA, например Europe/Moscow.
+
+  last_published_standup_date защищает
+  от повторной публикации сводки.
+end note
+
+note right of submissions
+  Аудио и сырая расшифровка не хранятся.
+
+  status:
+  processing
+  awaiting_confirmation
+  confirmed
+  failed
+end note
+
+@enduml
