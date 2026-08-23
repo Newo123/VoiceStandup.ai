@@ -16,6 +16,11 @@ type StandupTGBotTextRequestDTO struct {
 	Text string
 }
 
+type StandupTGBotTeamRequestDTO struct {
+	StandupTGBotBaseRequestDTO
+	TeamID string // номер к какой команде привязать человека
+}
+
 type StandupTGBotVoiceRequestDTO struct {
 	StandupTGBotBaseRequestDTO
 	VoiceFileID string

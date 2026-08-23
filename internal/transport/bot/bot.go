@@ -4,6 +4,11 @@
 // - Хэндлеры /start, регистрационных ответов, приема голоса и текста в ЛС.
 // - Обработка inline-кнопки «Отменить» или «Отправить» в предпросмотре.
 
+// TODO
+// 1. название кнопок callback.Data
+// 2. Stop() вызываем тут или в main?
+// 3. StateNone StateAwaitingRole соотнести с сервисом
+
 package bot
 
 import (
@@ -15,47 +20,57 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-type StandupTGBot struct {
-	service TGBotService
-	bot     *tgbotapi.BotAPI
-	done    chan struct{}
-	logger  *slog.Logger
-}
-
 const (
 	StateNone         = ""
 	StateAwaitingRole = "awaiting_role" // Пользователь сейчас должен выбрать/ввести роль
 )
 
-type TGBotService interface {
+type StandupTGBot struct {
+	onboard OnboardingService
+	standup StandupIngestionService
+	confirm StandupConfirmationService
+	bot     *tgbotapi.BotAPI
+	done    chan struct{}
+	logger  *slog.Logger
+}
+
+type OnboardingService interface {
 	// /start
-	StartOnboarding(ctx context.Context, req *domain.StandupTGBotBaseRequestDTO) (*domain.StandupTGBotResponseDTO, error)
+	StartOnboarding(ctx context.Context, req *domain.StandupTGBotTeamRequestDTO) (*domain.StandupTGBotResponseDTO, error)
 
 	// Записывать роль юзера
 	SetUserRole(ctx context.Context, req *domain.StandupTGBotTextRequestDTO) (*domain.StandupTGBotResponseDTO, error)
 
-	// Статус юзера (для понимания что сейчас ждем статус строкой)
+	// Статус юзера (FSM: ждем роль, ждем отчет и т.д.)
 	GetUserState(ctx context.Context, userID int64) (string, error)
 
-	// Голосовой отчет
+	// Сформировать сообщение после добавления бота в группу (инструкция с Chat ID)
+	BotAddedToGroup(ctx context.Context, chatID int64) (*domain.StandupTGBotResponseDTO, error)
+}
+type StandupIngestionService interface {
+	// Голосовой отчет -> транскрибация -> LLM -> Превью
 	ProcessVoiceStandup(ctx context.Context, req *domain.StandupTGBotVoiceRequestDTO) (*domain.StandupTGBotResponseDTO, error)
 
-	// Текстовый отчет
+	// Текстовый отчет -> LLM -> Превью
 	ProcessTextStandup(ctx context.Context, req *domain.StandupTGBotTextRequestDTO) (*domain.StandupTGBotResponseDTO, error)
-
+}
+type StandupConfirmationService interface {
 	// Обработка inline-кнопки «Отправить» в предпросмотре.
 	SaveReport(ctx context.Context, req *domain.StandupTGBotBaseRequestDTO) (*domain.StandupTGBotResponseDTO, error)
 
 	// Обработка inline-кнопки «Отменить» в предпросмотре.
 	CancelReport(ctx context.Context, req *domain.StandupTGBotBaseRequestDTO) (*domain.StandupTGBotResponseDTO, error)
-
-	// Сформировать сообщение после добавления бота в группу
-	BotAddedToGroup(ctx context.Context, chatID int64) (*domain.StandupTGBotResponseDTO, error)
 }
 
-func NewStandupTGBot(service TGBotService, bot *tgbotapi.BotAPI) *StandupTGBot {
+func NewStandupTGBot(
+	bot *tgbotapi.BotAPI,
+	onboard OnboardingService,
+	standup StandupIngestionService,
+	confirm StandupConfirmationService) *StandupTGBot {
 	return &StandupTGBot{
-		service: service,
+		onboard: onboard,
+		standup: standup,
+		confirm: confirm,
 		bot:     bot,
 		done:    make(chan struct{}),
 		logger:  slog.Default().With("component", "standup_tg_bot"),
@@ -86,7 +101,7 @@ func (s *StandupTGBot) GetUpdates(ctx context.Context) error {
 		for _, update := range updates {
 			u.Offset = update.UpdateID + 1
 
-			err := s.Route(ctx, update)
+			err := s.route(ctx, update)
 			if err != nil {
 				var chatID int64
 				if update.Message != nil {
@@ -126,6 +141,6 @@ func (s *StandupTGBot) Wait() {
 	<-s.done
 }
 
-func (s *StandupTGBot) stop() {
+func (s *StandupTGBot) Stop() {
 	s.bot.StopReceivingUpdates()
 }
