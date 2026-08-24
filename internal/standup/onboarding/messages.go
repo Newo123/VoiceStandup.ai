@@ -7,7 +7,7 @@ import (
 )
 
 // welcomeNoTeamMessage — приветствие для пользователя без команды
-func (s *OnboardingService) welcomeNoTeamMessage(user *domain.Users) string {
+func welcomeNoTeamMessage(user *domain.Users) string {
 	return fmt.Sprintf(
 		"Привет, %s! 👋\n\n"+
 			"Ты пока не привязан ни к одной команде. Вот что можно сделать:\n"+
@@ -18,7 +18,7 @@ func (s *OnboardingService) welcomeNoTeamMessage(user *domain.Users) string {
 }
 
 // askRoleMessage — запрос роли после привязки к команде
-func (s *OnboardingService) askRoleMessage(user *domain.Users) string {
+func askRoleMessage(user *domain.Users) string {
 	return fmt.Sprintf(
 		"Добро пожаловать в команду, %s! 🎉\n\n"+
 			"Напиши, пожалуйста, свою роль (например: разработчик, дизайнер, продакт-менеджер).",
@@ -27,7 +27,7 @@ func (s *OnboardingService) askRoleMessage(user *domain.Users) string {
 }
 
 // roleSetSuccessMessage — подтверждение после сохранения роли
-func (s *OnboardingService) roleSetSuccessMessage(user *domain.Users, team *domain.Teams, role string) string {
+func roleSetSuccessMessage(user *domain.Users, team *domain.Teams, role string) string {
 	return fmt.Sprintf(
 		"Отлично, %s! ✅\n\n"+
 			"**Команда:** «%s»\n"+
@@ -40,7 +40,7 @@ func (s *OnboardingService) roleSetSuccessMessage(user *domain.Users, team *doma
 }
 
 // botAddedToGroupMessage — приветствие при добавлении бота в группу
-func (s *OnboardingService) botAddedToGroupMessage(chatID int64) string {
+func botAddedToGroupMessage(chatID int64) string {
 	return fmt.Sprintf(
 		"Всем привет! 🤖\n\n"+
 			"Я — бот для ежедневных стендапов.\n\n"+

@@ -3,14 +3,30 @@ package bot
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	domain "VoiceStandup.ai/internal/core/domain"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func (s *StandupTGBot) handleStart(ctx context.Context, msg *tgbotapi.Message) error {
+
+	var teamID int64
+	args := msg.CommandArguments()
+	if args != "" {
+		parsed, err := strconv.ParseInt(args, 10, 64)
+		if err != nil {
+			s.answerToTG(&domain.StandupTGBotResponseDTO{
+				TargetChatID: msg.Chat.ID,
+				Text:         "❌ Неверная ссылка-приглашение. Попроси новую у администратора.",
+			})
+			return nil // ← не fatal, просто ответ пользователю
+		}
+		teamID = parsed
+	}
+
 	req := &domain.StandupTGBotTeamRequestDTO{
-		TeamID:                     msg.CommandArguments(),
+		TeamID:                     teamID,
 		StandupTGBotBaseRequestDTO: baseReqFromMsg(msg),
 	}
 

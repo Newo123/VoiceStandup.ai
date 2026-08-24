@@ -6,6 +6,13 @@ import (
 	uuid "github.com/google/uuid"
 )
 
+// const
+const (
+	StateNone               = ""
+	StateOnboarded          = "onboarded"
+	StatePrefixAwaitingRole = "awaiting_role" // Пользователь сейчас должен выбрать/ввести роль. awaiting_role:<uuid>
+)
+
 // StandupTGBot Request Response DTO
 type StandupTGBotBaseChatIDRequestDTO struct {
 	ChatID int64 // ID чата в Telegram
@@ -24,7 +31,7 @@ type StandupTGBotTextRequestDTO struct {
 
 type StandupTGBotTeamRequestDTO struct {
 	StandupTGBotBaseRequestDTO
-	TeamID int64 // номер к какой команде привязать человека
+	TeamID int64 // ChatID команды
 }
 
 type StandupTGBotVoiceRequestDTO struct {
@@ -41,11 +48,12 @@ type StandupTGBotResponseDTO struct {
 // DB
 type Users struct {
 	ID             uuid.UUID
+	State          string
 	TelegramUserID int64
 	Username       string
 	DisplayName    string
 	CreatedAt      time.Time
-	DeletedAt      time.Time
+	DeletedAt      *time.Time
 }
 
 type Teams struct {
@@ -58,5 +66,5 @@ type Teams struct {
 	LatePolicy               string
 	LastPublishedStandupDate time.Time
 	CreatedAt                time.Time
-	DeletedAt                time.Time
+	DeletedAt                *time.Time
 }

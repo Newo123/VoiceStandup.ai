@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"strings"
 
 	domain "VoiceStandup.ai/internal/core/domain"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -44,22 +45,20 @@ func (s *StandupTGBot) route(ctx context.Context, update tgbotapi.Update) error 
 	}
 
 	// 4. сценарий: ГОЛОСОВОЕ/ОБЫЧНЫЙ ТЕКСТ
-	// Получаем текущее состояние пользователя из вашего кэша/БД
 	userState, err := s.onboard.GetUserState(ctx, userID)
 	if err != nil {
 		return err
 	}
-	switch userState {
-	case StateAwaitingRole:
-		// Если бот ждал от пользователя роль (например, после Onboarding)
+
+	if strings.HasPrefix(userState, domain.StatePrefixAwaitingRole) {
 		return s.handleSetUserRole(ctx, msg)
-	default:
-		if msg.Voice != nil {
-			return s.handleVoiceStandup(ctx, msg)
-		} else {
-			return s.handleTextStandup(ctx, msg)
-		}
 	}
+
+	// default: Voice стендап
+	if msg.Voice != nil {
+		return s.handleVoiceStandup(ctx, msg)
+	}
+	return s.handleTextStandup(ctx, msg)
 }
 
 func baseReqFromMsg(msg *tgbotapi.Message) domain.StandupTGBotBaseRequestDTO {

@@ -20,11 +20,6 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-const (
-	StateNone         = ""
-	StateAwaitingRole = "awaiting_role" // Пользователь сейчас должен выбрать/ввести роль
-)
-
 type StandupTGBot struct {
 	onboard OnboardingService
 	standup StandupIngestionService
@@ -118,6 +113,7 @@ func (s *StandupTGBot) GetUpdates(ctx context.Context) error {
 // обрабатывает response от сервиса для формирования ответа юзеру
 func (s *StandupTGBot) answerToTG(resp *domain.StandupTGBotResponseDTO) {
 	msg := tgbotapi.NewMessage(resp.TargetChatID, resp.Text)
+	msg.ParseMode = tgbotapi.ModeMarkdownV2
 
 	if _, err := s.bot.Send(msg); err != nil {
 		s.logger.Error("send failed", "error", err, "chat_id", resp.TargetChatID)
