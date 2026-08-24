@@ -14,7 +14,8 @@ const defaultTimeout = 30 * time.Second
 // Config configures an outbound HTTP client.
 //
 // ProxyURL may contain an HTTP or HTTPS proxy URL. An empty value disables the
-// proxy and sends requests directly.
+// proxy and sends requests directly. Timeout defaults to 30 seconds when zero;
+// a negative Timeout is invalid.
 type Config struct {
 	ProxyURL string
 	Timeout  time.Duration
@@ -24,17 +25,24 @@ type Config struct {
 // Reusing the returned client allows its transport to reuse established
 // connections.
 func New(cfg Config) (*http.Client, error) {
+	if cfg.Timeout < 0 {
+		return nil, fmt.Errorf("HTTP client timeout must not be negative")
+	}
+
 	proxy, err := parseProxyURL(cfg.ProxyURL)
 	if err != nil {
 		return nil, err
 	}
 
 	timeout := cfg.Timeout
-	if timeout <= 0 {
+	if timeout == 0 {
 		timeout = defaultTimeout
 	}
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport, err := cloneTransport(http.DefaultTransport)
+	if err != nil {
+		return nil, err
+	}
 	transport.Proxy = proxy
 	transport.MaxIdleConns = 100
 	transport.MaxIdleConnsPerHost = 10
@@ -46,6 +54,15 @@ func New(cfg Config) (*http.Client, error) {
 		Transport: transport,
 		Timeout:   timeout,
 	}, nil
+}
+
+func cloneTransport(defaultTransport http.RoundTripper) (*http.Transport, error) {
+	transport, ok := defaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("http.DefaultTransport has type %T, want *http.Transport", defaultTransport)
+	}
+
+	return transport.Clone(), nil
 }
 
 func parseProxyURL(rawURL string) (func(*http.Request) (*url.URL, error), error) {
