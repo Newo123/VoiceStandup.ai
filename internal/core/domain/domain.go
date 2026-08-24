@@ -1,5 +1,11 @@
 package domain
 
+import (
+	"time"
+
+	uuid "github.com/google/uuid"
+)
+
 // StandupTGBot Request Response DTO
 type StandupTGBotBaseChatIDRequestDTO struct {
 	ChatID int64 // ID чата в Telegram
@@ -18,7 +24,7 @@ type StandupTGBotTextRequestDTO struct {
 
 type StandupTGBotTeamRequestDTO struct {
 	StandupTGBotBaseRequestDTO
-	TeamID string // номер к какой команде привязать человека
+	TeamID int64 // номер к какой команде привязать человека
 }
 
 type StandupTGBotVoiceRequestDTO struct {
@@ -30,4 +36,27 @@ type StandupTGBotVoiceRequestDTO struct {
 type StandupTGBotResponseDTO struct {
 	TargetChatID int64
 	Text         string
+}
+
+// DB
+type Users struct {
+	ID             uuid.UUID
+	TelegramUserID int64
+	Username       string
+	DisplayName    string
+	CreatedAt      time.Time
+	DeletedAt      time.Time
+}
+
+type Teams struct {
+	ID                       uuid.UUID
+	Name                     string
+	TelegramChatID           int64
+	Timezone                 string
+	PublishLocalTime         time.Time
+	Workdays                 []int
+	LatePolicy               string
+	LastPublishedStandupDate time.Time
+	CreatedAt                time.Time
+	DeletedAt                time.Time
 }
