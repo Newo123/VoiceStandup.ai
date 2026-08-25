@@ -7,11 +7,12 @@
 
 ```text
 migrations/
+├── Dockerfile
 ├── README.md
-└── 00001_initial_schema.sql
+└── 20260821215711_initial_schema.sql
 ```
 
-Каждый файл миграции содержит две секции:
+Каждый SQL-файл миграции содержит секции `Up` и `Down`:
 
 ```sql
 -- +goose Up
@@ -20,7 +21,6 @@ CREATE TABLE example (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid()
 );
 
-
 -- +goose Down
 
 DROP TABLE IF EXISTS example;
@@ -28,61 +28,47 @@ DROP TABLE IF EXISTS example;
 
 - `Up` применяет изменение.
 - `Down` отменяет изменение.
-- Goose автоматически выполняет обычную SQL-миграцию в транзакции.
+- По умолчанию Goose выполняет SQL-миграцию в транзакции.
 
+## Настройка окружения
 
-## Настройка подключения
-
-В корне проекта должен находиться локальный файл `.env`:
-
-```dotenv
-DATABASE_URL=postgresql://voice_standup:local_dev_password@localhost:5432/voice_standup?sslmode=disable
-```
-
-Файл `.env` содержит секреты и не должен попадать в Git. Шаблон без настоящих
-секретов хранится в `.env.example`.
-
-Перед запуском Goose загрузите переменные из `.env`:
+Скопируйте шаблон переменных окружения и при необходимости измените значения:
 
 ```bash
-set -a
-source .env
-set +a
+cp .env.example .env
 ```
 
-## Запуск PostgreSQL
+`DATABASE_URL` предназначен для приложения, запущенного на хосте. Контейнер migrator формирует внутреннюю строку подключения из `POSTGRES_DB`, `POSTGRES_USER` и `POSTGRES_PASSWORD`, используя сервис `postgres` и порт `5432`.
+
+Если в имени пользователя, пароле или названии базы есть специальные символы URL, их нужно percent-encode.
+
+## Запуск инфраструктуры
 
 ```bash
-docker compose up -d postgres
+docker compose up -d postgres redis
 docker compose ps
 ```
 
-Контейнер PostgreSQL должен иметь статус `healthy`.
-
-Посмотреть логи:
-
-```bash
-docker compose logs postgres
-```
+PostgreSQL и Redis должны перейти в состояние `healthy`.
 
 ## Применение миграций
 
-Применить все новые миграции:
+Migrator находится в профиле `tools`, запускается как одноразовый контейнер и автоматически ждёт готовности PostgreSQL:
 
 ```bash
-goose -dir migrations postgres "$DATABASE_URL" up
+docker compose --profile tools run --rm migrator
 ```
 
-Проверить состояние:
+Проверить состояние миграций:
 
 ```bash
-goose -dir migrations postgres "$DATABASE_URL" status
+docker compose --profile tools run --rm migrator status
 ```
 
 Посмотреть текущую версию базы:
 
 ```bash
-goose -dir migrations postgres "$DATABASE_URL" version
+docker compose --profile tools run --rm migrator version
 ```
 
 ## Откат
@@ -90,86 +76,39 @@ goose -dir migrations postgres "$DATABASE_URL" version
 Откатить последнюю миграцию:
 
 ```bash
-goose -dir migrations postgres "$DATABASE_URL" down
+docker compose --profile tools run --rm migrator down
 ```
 
 Откатить и повторно применить последнюю миграцию:
 
 ```bash
-goose -dir migrations postgres "$DATABASE_URL" redo
+docker compose --profile tools run --rm migrator redo
 ```
 
-Команду `down` следует использовать осторожно: откат может удалить таблицы и
-данные.
+Команды отката следует использовать осторожно: они могут удалить таблицы и данные.
 
 ## Создание новой миграции
 
-```bash
-goose -dir migrations -s create migration_name sql
-```
-
-Например:
+При локально установленном Goose:
 
 ```bash
-goose -dir migrations -s create add_team_description sql
+goose -dir migrations create migration_name sql
 ```
 
-Будет создан файл примерно такого вида:
+Будет создан timestamped-файл примерно такого вида:
 
 ```text
-migrations/00002_add_team_description.sql
-```
-
-Пример содержимого:
-
-```sql
--- +goose Up
-
-ALTER TABLE teams
-    ADD COLUMN description text;
-
-
--- +goose Down
-
-ALTER TABLE teams
-    DROP COLUMN description;
+migrations/20260823120000_migration_name.sql
 ```
 
 ## Правила работы
 
 1. Миграции применяются строго по порядку.
 2. Каждое изменение схемы оформляется новой миграцией.
-3. Уже отправленные в общий репозиторий миграции не редактируются.
+3. Уже опубликованные миграции не редактируются.
 4. Для секции `Up` добавляется соответствующий откат в `Down`.
-5. Таблицы и внешние ключи удаляются в обратном порядке.
+5. Таблицы и внешние ключи удаляются в обратном порядке зависимостей.
 6. Секреты и пароли не добавляются в SQL-файлы.
 7. Перед коммитом проверяются `up`, `down` и повторный `up`.
 
-## Проверка миграции
-
-```bash
-goose -dir migrations postgres "$DATABASE_URL" up
-goose -dir migrations postgres "$DATABASE_URL" status
-goose -dir migrations postgres "$DATABASE_URL" down
-goose -dir migrations postgres "$DATABASE_URL" up
-```
-
-Посмотреть созданные таблицы:
-
-```bash
-docker compose exec postgres \
-  psql -U voice_standup -d voice_standup -c '\dt'
-```
-
-Посмотреть структуру таблицы:
-
-```bash
-docker compose exec postgres \
-  psql -U voice_standup -d voice_standup -c '\d+ submissions'
-```
-
-## Служебная таблица Goose
-
-После первого запуска Goose автоматически создаёт таблицу `goose_db_version`.
-В ней хранится информация о применённых миграциях. Изменять или удалять эту
-таблицу вручную не нужно.
+После первого успешного запуска Goose создаёт служебную таблицу `goose_db_version`. Изменять или удалять её вручную не следует.
