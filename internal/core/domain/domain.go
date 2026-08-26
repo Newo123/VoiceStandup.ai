@@ -68,3 +68,33 @@ type Teams struct {
 	CreatedAt                time.Time
 	DeletedAt                *time.Time
 }
+
+type TeamMembers struct {
+	TeamID    uuid.UUID
+	UserID    uuid.UUID
+	Role      string
+	IsOwner   bool
+	FullName  string
+	Status    string
+	CreatedAt time.Time
+	DeletedAt *time.Time
+}
+
+type TelegramUpdates struct {
+	UpdateID   int64
+	ReceivedAt time.Time
+}
+
+type Submissions struct {
+	ID           uuid.UUID
+	TeamID       uuid.UUID
+	UserID       uuid.UUID
+	StandupDate  time.Time
+	Status       string
+	DoneText     *string
+	PlansText    *string
+	BlockersText *string
+	ConfirmedAt  *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    *time.Time
+}
