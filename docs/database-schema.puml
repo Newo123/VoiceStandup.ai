@@ -11,6 +11,7 @@ entity users {
 - telegram_user_id : bigint <<UQ>>
   username : varchar
   display_name : varchar
+- state : varchar
 - created_at : timestamptz
   deleted_at : timestamptz
 }
@@ -64,10 +65,23 @@ entity submissions {
   UQ(team_id, user_id, standup_date)
 }
 
+entity streaks {
+- team_id : uuid <<PK, FK>>
+- user_id : uuid <<PK, FK>>
+  --
+- current_count : integer
+- best_count : integer
+  last_standup_date : date
+- created_at : timestamptz
+- updated_at : timestamptz
+}
+
 users ||--o{ team_members
 teams ||--o{ team_members
 users ||--o{ submissions
 teams ||--o{ submissions
+users ||--o{ streaks
+teams ||--o{ streaks
 
 note right of teams
   timezone — IANA, например Europe/Moscow.
@@ -84,6 +98,14 @@ note right of submissions
   awaiting_confirmation
   confirmed
   failed
+end note
+
+note right of streaks
+  Стрик хранится отдельно для каждой пары
+  участник-команда.
+
+  Повторная обработка одной даты
+  не должна увеличивать current_count.
 end note
 
 @enduml
