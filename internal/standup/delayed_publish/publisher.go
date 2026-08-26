@@ -9,11 +9,23 @@ import (
 	"github.com/google/uuid"
 )
 
-// SubmissionRepository confirms a pending submission in persistent storage.
-// Implementations must update only records with status "pending" and return an
-// error when the submission is no longer pending.
-type SubmissionRepository interface {
+// PendingSubmissionConfirmer confirms a pending submission in persistent
+// storage. Implementations must update only records with status "pending".
+type PendingSubmissionConfirmer interface {
 	ConfirmPending(ctx context.Context, submissionID uuid.UUID) error
+}
+
+// SubmissionCanceller marks a pending submission as cancelled in persistent
+// storage. Implementations must update only records with status "pending".
+type SubmissionCanceller interface {
+	CancelPending(ctx context.Context, submissionID uuid.UUID) error
+}
+
+// SubmissionRepository is the Postgres-facing contract used by delayed
+// publication. CancelPending should set status to "cancelled".
+type SubmissionRepository interface {
+	PendingSubmissionConfirmer
+	SubmissionCanceller
 }
 
 // Gamification awards XP and updates streaks for a confirmed submission.
@@ -21,18 +33,18 @@ type Gamification interface {
 	ApplyConfirmedSubmission(ctx context.Context, submissionID uuid.UUID) error
 }
 
-// SubmissionPublisher is used by Worker to publish a submission.
+// SubmissionPublisher is used by Worker and Service to publish a submission.
 type SubmissionPublisher interface {
 	Publish(ctx context.Context, submissionID uuid.UUID) error
 }
 
 // Publisher confirms a submission and then applies its gamification effects.
 type Publisher struct {
-	repository   SubmissionRepository
+	repository   PendingSubmissionConfirmer
 	gamification Gamification
 }
 
-func NewPublisher(repository SubmissionRepository, gamification Gamification) (*Publisher, error) {
+func NewPublisher(repository PendingSubmissionConfirmer, gamification Gamification) (*Publisher, error) {
 	if repository == nil {
 		return nil, fmt.Errorf("submission repository is required")
 	}
@@ -40,14 +52,11 @@ func NewPublisher(repository SubmissionRepository, gamification Gamification) (*
 		return nil, fmt.Errorf("gamification service is required")
 	}
 
-	return &Publisher{
-		repository:   repository,
-		gamification: gamification,
-	}, nil
+	return &Publisher{repository: repository, gamification: gamification}, nil
 }
 
-// Publish atomically moves a submission from pending to confirmed through the
-// repository, then calculates its XP and streak effects.
+// Publish moves a submission from pending to confirmed, then calculates XP and
+// streak effects.
 func (p *Publisher) Publish(ctx context.Context, submissionID uuid.UUID) error {
 	if err := p.repository.ConfirmPending(ctx, submissionID); err != nil {
 		return fmt.Errorf("confirm pending submission: %w", err)
@@ -55,6 +64,5 @@ func (p *Publisher) Publish(ctx context.Context, submissionID uuid.UUID) error {
 	if err := p.gamification.ApplyConfirmedSubmission(ctx, submissionID); err != nil {
 		return fmt.Errorf("apply gamification: %w", err)
 	}
-
 	return nil
 }

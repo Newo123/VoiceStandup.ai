@@ -43,6 +43,8 @@ services:
       - "yes"
       - --requirepass
       - "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
+      - --notify-keyspace-events
+      - Ex
 
     ports:
       - "${REDIS_PORT:-6379}:6379"

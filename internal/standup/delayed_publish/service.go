@@ -5,10 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 const DefaultDelay = 2 * time.Minute
@@ -19,7 +20,98 @@ var (
 	ErrNotScheduled        = errors.New("submission is not scheduled")
 )
 
-// Worker receives timer-expiration events and publishes their submissions.
+// TimerStore persists delayed-publication timers and must survive restarts.
+type TimerStore interface {
+	Schedule(ctx context.Context, submissionID uuid.UUID, delay time.Duration) (created bool, err error)
+	Cancel(ctx context.Context, submissionID uuid.UUID) (cancelled bool, err error)
+}
+
+// ExpirationSubscriber supplies IDs from expired Redis timer keys.
+type ExpirationSubscriber interface {
+	SubscribeExpired(ctx context.Context) (<-chan uuid.UUID, func() error, error)
+}
+
+// RedisStore stores one TTL key per delayed submission. Redis must enable
+// keyspace notifications with "notify-keyspace-events Ex".
+type RedisStore struct {
+	client redis.UniversalClient
+	db     int
+	prefix string
+}
+
+func NewRedisStore(client redis.UniversalClient, db int) (*RedisStore, error) {
+	if client == nil {
+		return nil, fmt.Errorf("redis client is required")
+	}
+	if db < 0 {
+		return nil, fmt.Errorf("redis database number must not be negative")
+	}
+	return &RedisStore{client: client, db: db, prefix: "delayed_publish:"}, nil
+}
+
+func (s *RedisStore) Schedule(ctx context.Context, submissionID uuid.UUID, delay time.Duration) (bool, error) {
+	result, err := s.client.SetArgs(ctx, s.key(submissionID), "1", redis.SetArgs{Mode: "NX", TTL: delay}).Result()
+	if errors.Is(err, redis.Nil) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("set delayed publish key: %w", err)
+	}
+	return result == "OK", nil
+}
+
+func (s *RedisStore) Cancel(ctx context.Context, submissionID uuid.UUID) (bool, error) {
+	deleted, err := s.client.Del(ctx, s.key(submissionID)).Result()
+	if err != nil {
+		return false, fmt.Errorf("delete delayed publish key: %w", err)
+	}
+	return deleted == 1, nil
+}
+
+// SubscribeExpired converts Redis key-expiration messages to submission IDs.
+func (s *RedisStore) SubscribeExpired(ctx context.Context) (<-chan uuid.UUID, func() error, error) {
+	pubsub := s.client.PSubscribe(ctx, fmt.Sprintf("__keyevent@%d__:expired", s.db))
+	messages := pubsub.Channel()
+	ids := make(chan uuid.UUID)
+
+	go func() {
+		defer close(ids)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case message, ok := <-messages:
+				if !ok {
+					return
+				}
+				submissionID, ok := s.submissionIDFromKey(message.Payload)
+				if !ok {
+					continue
+				}
+				select {
+				case ids <- submissionID:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+
+	return ids, pubsub.Close, nil
+}
+
+func (s *RedisStore) key(submissionID uuid.UUID) string { return s.prefix + submissionID.String() }
+
+func (s *RedisStore) submissionIDFromKey(key string) (uuid.UUID, bool) {
+	value, found := strings.CutPrefix(key, s.prefix)
+	if !found {
+		return uuid.Nil, false
+	}
+	submissionID, err := uuid.Parse(value)
+	return submissionID, err == nil
+}
+
+// Worker receives Redis expiration events and publishes their submissions.
 type Worker struct {
 	publisher SubmissionPublisher
 	logger    *slog.Logger
@@ -29,123 +121,112 @@ func NewWorker(publisher SubmissionPublisher) (*Worker, error) {
 	if publisher == nil {
 		return nil, fmt.Errorf("submission publisher is required")
 	}
-
-	return &Worker{
-		publisher: publisher,
-		logger:    slog.Default().With("component", "delayed_publish_worker"),
-	}, nil
+	return &Worker{publisher: publisher, logger: slog.Default().With("component", "delayed_publish_worker")}, nil
 }
 
-// Process publishes one submission. It is called by Service in a background
-// goroutine when the scheduled delay expires.
-func (w *Worker) Process(ctx context.Context, submissionID uuid.UUID) error {
-	return w.publisher.Publish(ctx, submissionID)
+// Run listens until ctx is cancelled. Failed publications are logged; a
+// conditional pending-to-confirmed repository update prevents duplicates.
+func (w *Worker) Run(ctx context.Context, subscriber ExpirationSubscriber) error {
+	if subscriber == nil {
+		return fmt.Errorf("expiration subscriber is required")
+	}
+	events, closeSubscription, err := subscriber.SubscribeExpired(ctx)
+	if err != nil {
+		return fmt.Errorf("subscribe to expiration events: %w", err)
+	}
+	defer func() { _ = closeSubscription() }()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case submissionID, ok := <-events:
+			if !ok {
+				return nil
+			}
+			if err := w.publisher.Publish(context.Background(), submissionID); err != nil {
+				w.logger.Error("could not publish delayed submission", "submission_id", submissionID, "error", err)
+			}
+		}
+	}
 }
 
-// Service manages delayed-publication timers. It is safe for concurrent use.
+// Service manages Redis-backed delayed-publication keys.
 type Service struct {
-	worker *Worker
-	delay  time.Duration
-
-	mu     sync.Mutex
-	timers map[uuid.UUID]*time.Timer
+	timers    TimerStore
+	canceller SubmissionCanceller
+	publisher SubmissionPublisher
+	delay     time.Duration
 }
 
-// NewService creates a service whose schedules expire after two minutes.
-func NewService(worker *Worker) (*Service, error) {
-	return newService(worker, DefaultDelay)
-}
-
-func newService(worker *Worker, delay time.Duration) (*Service, error) {
-	if worker == nil {
-		return nil, fmt.Errorf("delayed publish worker is required")
+// NewService creates a service whose Redis timer keys expire after two minutes.
+func NewService(timers TimerStore, canceller SubmissionCanceller, publisher SubmissionPublisher) (*Service, error) {
+	if timers == nil {
+		return nil, fmt.Errorf("timer store is required")
 	}
-	if delay < 0 {
-		return nil, fmt.Errorf("delay must not be negative")
+	if canceller == nil {
+		return nil, fmt.Errorf("submission canceller is required")
 	}
-
-	return &Service{
-		worker: worker,
-		delay:  delay,
-		timers: make(map[uuid.UUID]*time.Timer),
-	}, nil
+	if publisher == nil {
+		return nil, fmt.Errorf("submission publisher is required")
+	}
+	return &Service{timers: timers, canceller: canceller, publisher: publisher, delay: DefaultDelay}, nil
 }
 
-// Schedule starts a two-minute delay before publishing submissionID.
+// Schedule writes a Redis key with a two-minute TTL.
 func (s *Service) Schedule(ctx context.Context, submissionID uuid.UUID) error {
-	if err := ctx.Err(); err != nil {
+	if err := validateRequest(ctx, submissionID); err != nil {
 		return err
 	}
-	if submissionID == uuid.Nil {
-		return ErrInvalidSubmissionID
+	created, err := s.timers.Schedule(ctx, submissionID, s.delay)
+	if err != nil {
+		return err
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, exists := s.timers[submissionID]; exists {
+	if !created {
 		return fmt.Errorf("%w: %s", ErrAlreadyScheduled, submissionID)
 	}
-
-	timer := time.AfterFunc(s.delay, func() { s.expire(submissionID) })
-	s.timers[submissionID] = timer
 	return nil
 }
 
-// Cancel removes a scheduled publication. It returns ErrNotScheduled when the
-// delay has already expired or the submission was cancelled before.
+// Cancel deletes the Redis key and changes the pending submission to cancelled.
 func (s *Service) Cancel(ctx context.Context, submissionID uuid.UUID) error {
-	if err := ctx.Err(); err != nil {
+	if err := validateRequest(ctx, submissionID); err != nil {
 		return err
 	}
-	if submissionID == uuid.Nil {
-		return ErrInvalidSubmissionID
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.stopScheduled(submissionID)
-}
-
-// ConfirmNow cancels a scheduled delay and immediately publishes submissionID.
-func (s *Service) ConfirmNow(ctx context.Context, submissionID uuid.UUID) error {
-	if err := ctx.Err(); err != nil {
+	cancelled, err := s.timers.Cancel(ctx, submissionID)
+	if err != nil {
 		return err
 	}
-	if submissionID == uuid.Nil {
-		return ErrInvalidSubmissionID
-	}
-
-	s.mu.Lock()
-	if err := s.stopScheduled(submissionID); err != nil {
-		s.mu.Unlock()
-		return err
-	}
-	s.mu.Unlock()
-
-	return s.worker.Process(ctx, submissionID)
-}
-
-func (s *Service) stopScheduled(submissionID uuid.UUID) error {
-	timer, exists := s.timers[submissionID]
-	if !exists || !timer.Stop() {
+	if !cancelled {
 		return fmt.Errorf("%w: %s", ErrNotScheduled, submissionID)
 	}
-
-	delete(s.timers, submissionID)
+	if err := s.canceller.CancelPending(ctx, submissionID); err != nil {
+		return fmt.Errorf("mark submission cancelled: %w", err)
+	}
 	return nil
 }
 
-func (s *Service) expire(submissionID uuid.UUID) {
-	s.mu.Lock()
-	if _, exists := s.timers[submissionID]; !exists {
-		s.mu.Unlock()
-		return
+// ConfirmNow deletes the Redis key and immediately publishes submissionID.
+func (s *Service) ConfirmNow(ctx context.Context, submissionID uuid.UUID) error {
+	if err := validateRequest(ctx, submissionID); err != nil {
+		return err
 	}
-	delete(s.timers, submissionID)
-	s.mu.Unlock()
+	cancelled, err := s.timers.Cancel(ctx, submissionID)
+	if err != nil {
+		return err
+	}
+	if !cancelled {
+		return fmt.Errorf("%w: %s", ErrNotScheduled, submissionID)
+	}
+	return s.publisher.Publish(ctx, submissionID)
+}
 
-	if err := s.worker.Process(context.Background(), submissionID); err != nil {
-		s.worker.logger.Error("could not publish delayed submission", "submission_id", submissionID, "error", err)
+func validateRequest(ctx context.Context, submissionID uuid.UUID) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
+	if submissionID == uuid.Nil {
+		return ErrInvalidSubmissionID
+	}
+	return nil
 }
