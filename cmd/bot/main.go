@@ -3,8 +3,9 @@ package main
 import (
 	"context"
 	"log"
-	"os"
 
+	"VoiceStandup.ai/config"
+	coreredis "VoiceStandup.ai/internal/core/redis"
 	"VoiceStandup.ai/internal/core/repository/postgres"
 	"github.com/joho/godotenv"
 )
@@ -16,11 +17,31 @@ func main() {
 		log.Printf(".env file not loaded: %v", err)
 	}
 
-	db, err := postgres.New(ctx, os.Getenv("DATABASE_URL"))
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("loading config: %v", err)
+	}
+
+	db, err := postgres.New(ctx, cfg.Postgres.URL, cfg.Postgres.ConnectTimeout)
 	if err != nil {
 		log.Fatalf("connecting to database: %v", err)
 	}
 	defer db.Close()
 
-	log.Println("connected to PostgreSQL database")
+	cache, err := coreredis.New(ctx, coreredis.Config{
+		Address:        cfg.Redis.Address,
+		Password:       cfg.Redis.Password,
+		DB:             cfg.Redis.DB,
+		ConnectTimeout: cfg.Redis.ConnectTimeout,
+	})
+	if err != nil {
+		log.Fatalf("connecting to redis: %v", err)
+	}
+	defer func() {
+		if err := cache.Close(); err != nil {
+			log.Printf("closing redis: %v", err)
+		}
+	}()
+
+	log.Println("connected to PostgreSQL and Redis")
 }
