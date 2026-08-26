@@ -1,0 +1,183 @@
+package repository
+
+import (
+	"context"
+	"errors"
+	"os"
+	"testing"
+	"time"
+
+	"VoiceStandup.ai/internal/core/domain"
+	corepostgres "VoiceStandup.ai/internal/core/repository/postgres"
+	"github.com/joho/godotenv"
+)
+
+func TestRepositoryCRUDIntegration(t *testing.T) {
+	databaseURL := integrationDatabaseURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	pool, err := corepostgres.New(ctx, databaseURL, 5*time.Second)
+	if err != nil {
+		t.Fatalf("connect to postgres: %v", err)
+	}
+	defer pool.Close()
+
+	repo := New(pool)
+	uniqueID := time.Now().UnixNano()
+
+	user := &domain.Users{
+		TelegramUserID: uniqueID,
+		Username:       "repository_test",
+		DisplayName:    "Repository Test",
+	}
+	if err := repo.CreateUser(ctx, user); err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+	defer func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, user.ID)
+	}()
+
+	duplicate := &domain.Users{TelegramUserID: user.TelegramUserID}
+	if err := repo.CreateUser(ctx, duplicate); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate CreateUser() error = %v", err)
+	}
+
+	loadedUser, err := repo.GetActiveUserByTelegramID(ctx, user.TelegramUserID)
+	if err != nil || loadedUser == nil {
+		t.Fatalf("GetActiveUserByTelegramID() user = %v, error = %v", loadedUser, err)
+	}
+	if err := repo.SetUserState(ctx, user, domain.StateOnboarded); err != nil {
+		t.Fatalf("SetUserState() error = %v", err)
+	}
+	user.DisplayName = "Updated Test User"
+	if err := repo.UpdateUser(ctx, user); err != nil {
+		t.Fatalf("UpdateUser() error = %v", err)
+	}
+
+	team := &domain.Teams{
+		Name:             "Repository Test Team",
+		TelegramChatID:   -uniqueID,
+		Timezone:         "Europe/Moscow",
+		PublishLocalTime: time.Date(0, time.January, 1, 12, 30, 0, 0, time.UTC),
+		Workdays:         []int{1, 2, 3, 4, 5},
+		LatePolicy:       "NEXT_DIGEST",
+	}
+	if err := repo.CreateTeam(ctx, team); err != nil {
+		t.Fatalf("CreateTeam() error = %v", err)
+	}
+	defer func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM teams WHERE id = $1`, team.ID)
+	}()
+
+	loadedTeam, err := repo.GetTeamByTelegramChatID(ctx, team.TelegramChatID)
+	if err != nil || loadedTeam == nil {
+		t.Fatalf("GetTeamByTelegramChatID() team = %v, error = %v", loadedTeam, err)
+	}
+	if loadedTeam.PublishLocalTime.Hour() != 12 || loadedTeam.PublishLocalTime.Minute() != 30 {
+		t.Fatalf("PublishLocalTime = %v", loadedTeam.PublishLocalTime)
+	}
+	if len(loadedTeam.Workdays) != 5 {
+		t.Fatalf("Workdays = %v", loadedTeam.Workdays)
+	}
+
+	if err := repo.SaveUserInTeamByChatID(ctx, user.ID, team.ID); err != nil {
+		t.Fatalf("SaveUserInTeamByChatID() error = %v", err)
+	}
+	if err := repo.SaveUserInTeamByChatID(ctx, user.ID, team.ID); err != nil {
+		t.Fatalf("idempotent SaveUserInTeamByChatID() error = %v", err)
+	}
+	if err := repo.SaveUserRoleInTeam(ctx, user.ID, team.ID, "developer"); err != nil {
+		t.Fatalf("SaveUserRoleInTeam() error = %v", err)
+	}
+	members, err := repo.GetTeamMembers(ctx, team.ID)
+	if err != nil || len(members) != 1 || members[0].Role != "developer" {
+		t.Fatalf("GetTeamMembers() members = %v, error = %v", members, err)
+	}
+
+	standupDate := time.Date(2026, time.August, 26, 0, 0, 0, 0, time.FixedZone("test", 3*60*60))
+	submission := &domain.Submissions{
+		TeamID:      team.ID,
+		UserID:      user.ID,
+		StandupDate: standupDate,
+		Status:      "awaiting_confirmation",
+		DoneText:    stringPointer("Implemented repository"),
+		PlansText:   stringPointer("Add integration tests"),
+	}
+	if err := repo.SaveSubmission(ctx, submission); err != nil {
+		t.Fatalf("SaveSubmission() error = %v", err)
+	}
+	if err := repo.ConfirmSubmission(ctx, submission.ID); err != nil {
+		t.Fatalf("ConfirmSubmission() error = %v", err)
+	}
+	submissions, err := repo.GetSubmissionsByTeamAndDate(ctx, team.ID, standupDate)
+	if err != nil || len(submissions) != 1 {
+		t.Fatalf("GetSubmissionsByTeamAndDate() submissions = %v, error = %v", submissions, err)
+	}
+	if submissions[0].StandupDate.Format(time.DateOnly) != standupDate.Format(time.DateOnly) {
+		t.Fatalf("StandupDate = %v", submissions[0].StandupDate)
+	}
+
+	streak := &domain.Streaks{
+		TeamID:          team.ID,
+		UserID:          user.ID,
+		CurrentCount:    1,
+		BestCount:       1,
+		LastStandupDate: &standupDate,
+	}
+	if err := repo.SaveStreak(ctx, streak); err != nil {
+		t.Fatalf("SaveStreak() create error = %v", err)
+	}
+	streak.CurrentCount = 2
+	streak.BestCount = 2
+	if err := repo.SaveStreak(ctx, streak); err != nil {
+		t.Fatalf("SaveStreak() update error = %v", err)
+	}
+	loadedStreak, err := repo.GetStreak(ctx, team.ID, user.ID)
+	if err != nil || loadedStreak == nil || loadedStreak.CurrentCount != 2 {
+		t.Fatalf("GetStreak() streak = %v, error = %v", loadedStreak, err)
+	}
+	streaks, err := repo.ListTeamStreaks(ctx, team.ID)
+	if err != nil || len(streaks) != 1 {
+		t.Fatalf("ListTeamStreaks() streaks = %v, error = %v", streaks, err)
+	}
+	if err := repo.DeleteStreak(ctx, team.ID, user.ID); err != nil {
+		t.Fatalf("DeleteStreak() error = %v", err)
+	}
+
+	if err := repo.SoftDeleteTeam(ctx, team.ID); err != nil {
+		t.Fatalf("SoftDeleteTeam() error = %v", err)
+	}
+	if activeTeam, err := repo.GetTeamByUUID(ctx, team.ID); err != nil || activeTeam != nil {
+		t.Fatalf("GetTeamByUUID() after delete team = %v, error = %v", activeTeam, err)
+	}
+	if err := repo.SoftDeleteUser(ctx, user.ID); err != nil {
+		t.Fatalf("SoftDeleteUser() error = %v", err)
+	}
+	if activeUser, err := repo.GetActiveUserByTelegramID(ctx, user.TelegramUserID); err != nil || activeUser != nil {
+		t.Fatalf("GetActiveUserByTelegramID() after delete user = %v, error = %v", activeUser, err)
+	}
+}
+
+func integrationDatabaseURL(t *testing.T) string {
+	t.Helper()
+	if os.Getenv("REPOSITORY_INTEGRATION") != "1" {
+		t.Skip("set REPOSITORY_INTEGRATION=1 to run PostgreSQL integration test")
+	}
+	if databaseURL := os.Getenv("TEST_DATABASE_URL"); databaseURL != "" {
+		return databaseURL
+	}
+
+	values, err := godotenv.Read("../../../.env")
+	if err != nil {
+		t.Fatalf("read .env: %v", err)
+	}
+	if values["DATABASE_URL"] == "" {
+		t.Fatal("TEST_DATABASE_URL or DATABASE_URL in .env is required")
+	}
+	return values["DATABASE_URL"]
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
