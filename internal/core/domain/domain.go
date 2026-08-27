@@ -91,6 +91,7 @@ type Submissions struct {
 	UserID       uuid.UUID
 	StandupDate  time.Time
 	Status       string
+	Format       string // "voice" or "text"
 	DoneText     *string
 	PlansText    *string
 	BlockersText *string
