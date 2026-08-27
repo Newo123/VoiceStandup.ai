@@ -80,6 +80,11 @@ type TeamMembers struct {
 	DeletedAt *time.Time
 }
 
+type TelegramUpdates struct {
+	UpdateID   int64
+	ReceivedAt time.Time
+}
+
 type Submissions struct {
 	ID           uuid.UUID
 	TeamID       uuid.UUID
