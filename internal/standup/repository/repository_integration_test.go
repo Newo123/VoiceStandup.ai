@@ -25,6 +25,27 @@ func TestRepositoryCRUDIntegration(t *testing.T) {
 
 	repo := New(pool)
 	uniqueID := time.Now().UnixNano()
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+
+		queries := []struct {
+			name string
+			sql  string
+			args []any
+		}{
+			{"streaks", `DELETE FROM streaks WHERE team_id IN (SELECT id FROM teams WHERE telegram_chat_id = $1)`, []any{-uniqueID}},
+			{"submissions", `DELETE FROM submissions WHERE team_id IN (SELECT id FROM teams WHERE telegram_chat_id = $1)`, []any{-uniqueID}},
+			{"team members", `DELETE FROM team_members WHERE team_id IN (SELECT id FROM teams WHERE telegram_chat_id = $1)`, []any{-uniqueID}},
+			{"team", `DELETE FROM teams WHERE telegram_chat_id = $1`, []any{-uniqueID}},
+			{"users", `DELETE FROM users WHERE telegram_user_id IN ($1, $2)`, []any{uniqueID, uniqueID + 1}},
+		}
+		for _, query := range queries {
+			if _, err := pool.Exec(cleanupCtx, query.sql, query.args...); err != nil {
+				t.Errorf("cleanup %s: %v", query.name, err)
+			}
+		}
+	}()
 
 	user := &domain.Users{
 		TelegramUserID: uniqueID,
@@ -34,9 +55,6 @@ func TestRepositoryCRUDIntegration(t *testing.T) {
 	if err := repo.CreateUser(ctx, user); err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
-	defer func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, user.ID)
-	}()
 
 	duplicate := &domain.Users{TelegramUserID: user.TelegramUserID}
 	if err := repo.CreateUser(ctx, duplicate); !errors.Is(err, ErrConflict) {
@@ -66,9 +84,6 @@ func TestRepositoryCRUDIntegration(t *testing.T) {
 	if err := repo.CreateTeam(ctx, team); err != nil {
 		t.Fatalf("CreateTeam() error = %v", err)
 	}
-	defer func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM teams WHERE id = $1`, team.ID)
-	}()
 
 	loadedTeam, err := repo.GetTeamByTelegramChatID(ctx, team.TelegramChatID)
 	if err != nil || loadedTeam == nil {
@@ -127,6 +142,19 @@ func TestRepositoryCRUDIntegration(t *testing.T) {
 	}
 	if err := repo.SaveStreak(ctx, streak); err != nil {
 		t.Fatalf("SaveStreak() create error = %v", err)
+	}
+	nonMember := &domain.Users{TelegramUserID: uniqueID + 1}
+	if err := repo.CreateUser(ctx, nonMember); err != nil {
+		t.Fatalf("CreateUser() for non-member error = %v", err)
+	}
+	streakForNonMember := &domain.Streaks{
+		TeamID:       team.ID,
+		UserID:       nonMember.ID,
+		CurrentCount: 1,
+		BestCount:    1,
+	}
+	if err := repo.SaveStreak(ctx, streakForNonMember); err == nil {
+		t.Fatal("SaveStreak() for non-member error = nil")
 	}
 	streak.CurrentCount = 2
 	streak.BestCount = 2

@@ -80,8 +80,7 @@ users ||--o{ team_members
 teams ||--o{ team_members
 users ||--o{ submissions
 teams ||--o{ submissions
-users ||--o{ streaks
-teams ||--o{ streaks
+team_members ||--o| streaks
 
 note right of teams
   timezone — IANA, например Europe/Moscow.

@@ -10,7 +10,8 @@ migrations/
 ├── Dockerfile
 ├── README.md
 ├── 20260821215711_initial_schema.sql
-└── 20260826000000_add_user_state_and_streaks.sql
+├── 20260826000000_add_user_state_and_streaks.sql
+└── 20260827000000_enforce_streak_membership.sql
 ```
 
 Каждый SQL-файл миграции содержит секции `Up` и `Down`:
