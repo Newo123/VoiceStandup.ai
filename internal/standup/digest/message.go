@@ -73,7 +73,7 @@ func (w *DigestService) buildDigestMessage(
 
 	if len(silentMembers) > 0 {
 		sb.WriteString("━━━━━━━━━━━━━━━━\n")
-		sb.WriteString("<b>🔇 Молчуны (штраф -20 XP):</b>\n")
+		sb.WriteString("<b>🔇 Нет отчёта:</b>\n")
 		for _, m := range silentMembers {
 			name := m.FullName
 			if name == "" {

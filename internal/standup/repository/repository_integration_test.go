@@ -34,11 +34,11 @@ func TestRepositoryCRUDIntegration(t *testing.T) {
 			sql  string
 			args []any
 		}{
-			{"streaks", `DELETE FROM streaks WHERE team_id IN (SELECT id FROM teams WHERE telegram_chat_id = $1)`, []any{-uniqueID}},
+			{"user stats", `DELETE FROM user_stats WHERE user_id IN (SELECT id FROM users WHERE telegram_user_id = $1)`, []any{uniqueID}},
 			{"submissions", `DELETE FROM submissions WHERE team_id IN (SELECT id FROM teams WHERE telegram_chat_id = $1)`, []any{-uniqueID}},
 			{"team members", `DELETE FROM team_members WHERE team_id IN (SELECT id FROM teams WHERE telegram_chat_id = $1)`, []any{-uniqueID}},
 			{"team", `DELETE FROM teams WHERE telegram_chat_id = $1`, []any{-uniqueID}},
-			{"users", `DELETE FROM users WHERE telegram_user_id IN ($1, $2)`, []any{uniqueID, uniqueID + 1}},
+			{"user", `DELETE FROM users WHERE telegram_user_id = $1`, []any{uniqueID}},
 		}
 		for _, query := range queries {
 			if _, err := pool.Exec(cleanupCtx, query.sql, query.args...); err != nil {
@@ -54,6 +54,13 @@ func TestRepositoryCRUDIntegration(t *testing.T) {
 	}
 	if err := repo.CreateUser(ctx, user); err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
+	}
+	stats, err := repo.GetUserStats(ctx, user.ID)
+	if err != nil || stats == nil {
+		t.Fatalf("GetUserStats() after CreateUser() stats = %v, error = %v", stats, err)
+	}
+	if stats.XP != 0 || stats.Level != 1 || stats.CurrentStreak != 0 || stats.BestStreak != 0 {
+		t.Fatalf("default UserStats = %+v", stats)
 	}
 
 	duplicate := &domain.Users{TelegramUserID: user.TelegramUserID}
@@ -133,44 +140,28 @@ func TestRepositoryCRUDIntegration(t *testing.T) {
 		t.Fatalf("StandupDate = %v", submissions[0].StandupDate)
 	}
 
-	streak := &domain.Streaks{
-		TeamID:          team.ID,
-		UserID:          user.ID,
-		CurrentCount:    1,
-		BestCount:       1,
-		LastStandupDate: &standupDate,
+	stats.XP = 100
+	stats.Level = 2
+	stats.CurrentStreak = 2
+	stats.BestStreak = 3
+	stats.LastStandupDate = &standupDate
+	if err := repo.SaveUserStats(ctx, stats); err != nil {
+		t.Fatalf("SaveUserStats() update error = %v", err)
 	}
-	if err := repo.SaveStreak(ctx, streak); err != nil {
-		t.Fatalf("SaveStreak() create error = %v", err)
+	loadedStats, err := repo.GetUserStats(ctx, user.ID)
+	if err != nil || loadedStats == nil || loadedStats.XP != 100 || loadedStats.Level != 2 || loadedStats.CurrentStreak != 2 {
+		t.Fatalf("GetUserStats() stats = %v, error = %v", loadedStats, err)
 	}
-	nonMember := &domain.Users{TelegramUserID: uniqueID + 1}
-	if err := repo.CreateUser(ctx, nonMember); err != nil {
-		t.Fatalf("CreateUser() for non-member error = %v", err)
+	invalidStats := *stats
+	invalidStats.XP = -1
+	if err := repo.SaveUserStats(ctx, &invalidStats); err == nil {
+		t.Fatal("SaveUserStats() with negative XP error = nil")
 	}
-	streakForNonMember := &domain.Streaks{
-		TeamID:       team.ID,
-		UserID:       nonMember.ID,
-		CurrentCount: 1,
-		BestCount:    1,
+	if err := repo.DeleteUserStats(ctx, user.ID); err != nil {
+		t.Fatalf("DeleteUserStats() error = %v", err)
 	}
-	if err := repo.SaveStreak(ctx, streakForNonMember); err == nil {
-		t.Fatal("SaveStreak() for non-member error = nil")
-	}
-	streak.CurrentCount = 2
-	streak.BestCount = 2
-	if err := repo.SaveStreak(ctx, streak); err != nil {
-		t.Fatalf("SaveStreak() update error = %v", err)
-	}
-	loadedStreak, err := repo.GetStreak(ctx, team.ID, user.ID)
-	if err != nil || loadedStreak == nil || loadedStreak.CurrentCount != 2 {
-		t.Fatalf("GetStreak() streak = %v, error = %v", loadedStreak, err)
-	}
-	streaks, err := repo.ListTeamStreaks(ctx, team.ID)
-	if err != nil || len(streaks) != 1 {
-		t.Fatalf("ListTeamStreaks() streaks = %v, error = %v", streaks, err)
-	}
-	if err := repo.DeleteStreak(ctx, team.ID, user.ID); err != nil {
-		t.Fatalf("DeleteStreak() error = %v", err)
+	if deletedStats, err := repo.GetUserStats(ctx, user.ID); err != nil || deletedStats != nil {
+		t.Fatalf("GetUserStats() after delete stats = %v, error = %v", deletedStats, err)
 	}
 
 	if err := repo.SoftDeleteTeam(ctx, team.ID); err != nil {

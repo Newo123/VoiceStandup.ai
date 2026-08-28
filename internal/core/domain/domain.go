@@ -99,11 +99,12 @@ type Submissions struct {
 	UpdatedAt    *time.Time
 }
 
-type Streaks struct {
-	TeamID          uuid.UUID
+type UserStats struct {
 	UserID          uuid.UUID
-	CurrentCount    int
-	BestCount       int
+	XP              int
+	Level           int
+	CurrentStreak   int
+	BestStreak      int
 	LastStandupDate *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
