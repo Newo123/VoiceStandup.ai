@@ -16,13 +16,17 @@ import (
 
 const (
 	// XP за время сдачи
-	xpOnTime     = 30 // сдано до 10:00 local
-	xpInWindow   = 15 // сдано 10:00 – 11:30 local
-	xpBeforeLate = 10 // сдано 11:30 – 11:58 local
+	xpOnTime     = 30 // сдано до времени публикации
+	xpInWindow   = 15 // сдано в окне: публикация – публикация+1ч30м
+	xpBeforeLate = 10 // сдано до дайджеста: публикация+1ч30м – публикация+1ч58м
 
 	// XP за формат
 	xpVoice = 10 // голосовое сообщение
 	xpText  = 0  // текстовый формат
+
+	// Длительности временных окон
+	windowDuration = 90 * time.Minute  // 1ч30м — стандартное окно
+	lateDuration   = 118 * time.Minute // 1ч58м — до дайджеста
 
 	// Пороги множителя стрика
 	streakThreshold10 = 10 // x2.0
@@ -44,41 +48,14 @@ const (
 	level6PlusStep = 500
 )
 
-// ---------- Границы времени (local time) ----------
-
-var (
-	timeOnTimeEnd = parseTimeOnly("10:00")
-	timeWindowEnd = parseTimeOnly("11:30")
-	timeLateEnd   = parseTimeOnly("11:58")
-)
-
-func parseTimeOnly(s string) time.Time {
-	t, err := time.Parse("15:04", s)
-	if err != nil {
-		panic("gamification: неверная константа времени: " + s)
-	}
-	return t
-}
-
-// ---------- Типы данных ----------
-
-// UserStatsData — состояние геймификации одного пользователя.
-type UserStatsData struct {
-	XP              int64
-	Level           int
-	CurrentStreak   int
-	BestStreak      int
-	LastStandupDate *time.Time // только дата, nil если ни разу не сдавал
-}
-
 // ---------- Интерфейсы ----------
 
 // GamificationRepo читает и обновляет данные геймификации в PostgreSQL.
 type GamificationRepo interface {
 	GetSubmission(ctx context.Context, submissionID uuid.UUID) (domain.Submissions, error)
-	GetTeamTimezone(ctx context.Context, teamID uuid.UUID) (string, error)
-	GetUserStats(ctx context.Context, userID uuid.UUID) (UserStatsData, error)
-	UpdateUserStats(ctx context.Context, userID uuid.UUID, stats UserStatsData) error
+	GetTeam(ctx context.Context, teamID uuid.UUID) (domain.Teams, error)
+	GetUserStats(ctx context.Context, userID uuid.UUID) (domain.UserStats, error)
+	UpdateUserStats(ctx context.Context, stats domain.UserStats) error
 }
 
 // Clock — обёртка над time.Now() для тестирования.
@@ -121,9 +98,9 @@ func (g *GamificationService) ApplyConfirmedSubmission(ctx context.Context, subm
 		return fmt.Errorf("ошибка загрузки сдачи %s: %w", submissionID, err)
 	}
 
-	timezone, err := g.repo.GetTeamTimezone(ctx, submission.TeamID)
+	team, err := g.repo.GetTeam(ctx, submission.TeamID)
 	if err != nil {
-		return fmt.Errorf("ошибка загрузки часового пояса команды %s: %w", submission.TeamID, err)
+		return fmt.Errorf("ошибка загрузки команды %s: %w", submission.TeamID, err)
 	}
 
 	stats, err := g.repo.GetUserStats(ctx, submission.UserID)
@@ -132,12 +109,12 @@ func (g *GamificationService) ApplyConfirmedSubmission(ctx context.Context, subm
 	}
 
 	// ---- Шаг 1: Базовый XP (время + формат) ----
-	baseXP := calculateTimeXP(submission.CreatedAt, timezone)
+	baseXP := calculateTimeXP(submission.CreatedAt, team.Timezone, team.PublishLocalTime)
 	formatXP := calculateFormatXP(submission.Format)
 	rawXP := baseXP + formatXP
 
 	// ---- Шаг 2: Система стриков ----
-	today := todayInTimezone(g.clock.Now(), timezone)
+	today := todayInTimezone(g.clock.Now(), team.Timezone)
 
 	streak := stats.CurrentStreak
 	lastDate := stats.LastStandupDate
@@ -153,7 +130,7 @@ func (g *GamificationService) ApplyConfirmedSubmission(ctx context.Context, subm
 	}
 
 	multiplier := streakMultiplier(streak)
-	finalXP := int64(math.Round(float64(rawXP) * multiplier))
+	finalXP := int(math.Round(float64(rawXP) * multiplier))
 
 	// ---- Обновление рекорда ----
 	bestStreak := stats.BestStreak
@@ -166,7 +143,8 @@ func (g *GamificationService) ApplyConfirmedSubmission(ctx context.Context, subm
 	newLevel := calculateLevel(newTotalXP)
 
 	// ---- Сохранение ----
-	updatedStats := UserStatsData{
+	updatedStats := domain.UserStats{
+		UserID:          submission.UserID,
 		XP:              newTotalXP,
 		Level:           newLevel,
 		CurrentStreak:   streak,
@@ -174,7 +152,7 @@ func (g *GamificationService) ApplyConfirmedSubmission(ctx context.Context, subm
 		LastStandupDate: &today,
 	}
 
-	if err := g.repo.UpdateUserStats(ctx, submission.UserID, updatedStats); err != nil {
+	if err := g.repo.UpdateUserStats(ctx, updatedStats); err != nil {
 		return fmt.Errorf("ошибка обновления статистики пользователя %s: %w", submission.UserID, err)
 	}
 
@@ -194,28 +172,40 @@ func (g *GamificationService) ApplyConfirmedSubmission(ctx context.Context, subm
 
 // ---------- Шаг 1: XP за время сдачи ----------
 
-// calculateTimeXP возвращает XP в зависимости от времени сдачи в часовом поясе команды.
-func calculateTimeXP(createdAt time.Time, timezone string) int {
+// calculateTimeXP возвращает XP в зависимости от времени сдачи
+// относительно времени публикации команды (PublishLocalTime) в её часовом поясе.
+//
+// Границы окон вычисляются динамически:
+//
+//	вовремя:       ≤ publishTime                  → +30 XP
+//	стандартное:   publishTime – publishTime+1ч30м → +15 XP
+//	до дайджеста:  publishTime+1ч30м – +1ч58м     → +10 XP
+//	после:         > publishTime+1ч58м             → 0 XP
+func calculateTimeXP(createdAt time.Time, timezone string, publishLocalTime time.Time) int {
 	loc, err := time.LoadLocation(timezone)
 	if err != nil {
 		loc = time.UTC
 	}
 	localTime := createdAt.In(loc)
+
+	// Берём только время (часы:минуты) из PublishLocalTime.
+	// Сама дата publishLocalTime не важна — только время публикации.
+	publishTime := time.Date(0, 1, 1, publishLocalTime.Hour(), publishLocalTime.Minute(), 0, 0, time.UTC)
+
+	// Строим локальное время сдачи как time.Time с датой 0001-01-01 (для сравнения time-only).
 	localClock := time.Date(0, 1, 1, localTime.Hour(), localTime.Minute(), localTime.Second(), 0, time.UTC)
 
-	onTimeEnd := timeOnTimeEnd
-	windowEnd := timeWindowEnd
-	lateEnd := timeLateEnd
+	windowEnd := publishTime.Add(windowDuration)
+	lateEnd := publishTime.Add(lateDuration)
 
 	switch {
-	case localClock.Before(onTimeEnd) || localClock.Equal(onTimeEnd):
+	case localClock.Before(publishTime) || localClock.Equal(publishTime):
 		return xpOnTime
 	case localClock.Before(windowEnd) || localClock.Equal(windowEnd):
 		return xpInWindow
 	case localClock.Before(lateEnd) || localClock.Equal(lateEnd):
 		return xpBeforeLate
 	default:
-		// После 11:58 — 0 XP.
 		return 0
 	}
 }
@@ -246,7 +236,7 @@ func streakMultiplier(streak int) float64 {
 
 // ---------- Шаг 3: Расчёт уровня ----------
 
-func calculateLevel(totalXP int64) int {
+func calculateLevel(totalXP int) int {
 	switch {
 	case totalXP < level2Threshold:
 		return 1
@@ -260,7 +250,7 @@ func calculateLevel(totalXP int64) int {
 		return 5
 	default:
 		// Уровень 6+: 5 + floor((xp - 1500) / 500) + 1
-		return 5 + int((totalXP-level6Threshold)/level6PlusStep) + 1
+		return 5 + (totalXP-level6Threshold)/level6PlusStep + 1
 	}
 }
 

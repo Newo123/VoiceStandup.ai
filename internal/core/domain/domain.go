@@ -99,3 +99,14 @@ type Submissions struct {
 	CreatedAt    time.Time
 	UpdatedAt    *time.Time
 }
+
+type UserStats struct {
+	UserID          uuid.UUID
+	XP              int
+	Level           int
+	CurrentStreak   int
+	BestStreak      int
+	LastStandupDate *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
