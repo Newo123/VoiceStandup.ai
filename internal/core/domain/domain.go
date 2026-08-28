@@ -13,6 +13,13 @@ const (
 	StatePrefixAwaitingRole = "awaiting_role" // Пользователь сейчас должен выбрать/ввести роль. awaiting_role:<uuid>
 )
 
+// StandupResponse — DTO структурированного стендап-отчёта, полученного от LLM.
+type StandupResponse struct {
+	Done       string `json:"done"`
+	InProgress string `json:"in_progress"`
+	Blockers   string `json:"blockers"`
+}
+
 // StandupTGBot Request Response DTO
 type StandupTGBotBaseChatIDRequestDTO struct {
 	ChatID int64 // ID чата в Telegram
