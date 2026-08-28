@@ -11,6 +11,7 @@ entity users {
 - telegram_user_id : bigint <<UQ>>
   username : varchar
   display_name : varchar
+- state : varchar
 - created_at : timestamptz
   deleted_at : timestamptz
 }
@@ -64,10 +65,23 @@ entity submissions {
   UQ(team_id, user_id, standup_date)
 }
 
+entity user_stats {
+- user_id : uuid <<PK, FK>>
+  --
+- xp : integer
+- level : integer
+- current_streak : integer
+- best_streak : integer
+  last_standup_date : date
+- created_at : timestamptz
+- updated_at : timestamptz
+}
+
 users ||--o{ team_members
 teams ||--o{ team_members
 users ||--o{ submissions
 teams ||--o{ submissions
+users ||--o| user_stats
 
 note right of teams
   timezone — IANA, например Europe/Moscow.
@@ -84,6 +98,14 @@ note right of submissions
   awaiting_confirmation
   confirmed
   failed
+end note
+
+note right of user_stats
+  XP, уровень и стрик относятся к пользователю,
+  а не к отдельной команде.
+
+  Начисление XP, расчёт уровня и обновление
+  серии выполняются в бизнес-слое.
 end note
 
 @enduml
