@@ -17,6 +17,7 @@ type Config struct {
 	Redis    Redis
 	LLM      LLM
 	STT      STT
+	Telegram Telegram
 }
 
 type Postgres struct {
@@ -43,6 +44,11 @@ type STT struct {
 	APIKey  string
 	Model   string
 	Timeout time.Duration
+}
+
+// Telegram содержит настройки для Telegram Bot API.
+type Telegram struct {
+	BotToken string
 }
 
 // Load читает конфигурацию из переменных окружения и проверяет настройки
@@ -94,6 +100,9 @@ func Load() (Config, error) {
 			Model:   envString("STT_MODEL", "openai/whisper-large-v3-turbo"),
 			Timeout: sttTimeout,
 		},
+		Telegram: Telegram{
+			BotToken: os.Getenv("BOT_TOKEN"),
+		},
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -127,6 +136,9 @@ func (c Config) Validate() error {
 	}
 	if c.STT.APIKey == "" {
 		return errors.New("STT_API_KEY is required")
+	}
+	if c.Telegram.BotToken == "" {
+		return errors.New("BOT_TOKEN is required")
 	}
 	if c.LLM.Timeout <= 0 {
 		return errors.New("LLM_TIMEOUT must be positive")

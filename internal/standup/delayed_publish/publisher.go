@@ -12,17 +12,17 @@ import (
 // PendingSubmissionConfirmer confirms a pending submission in persistent
 // storage. Implementations must update only records with status "pending".
 type PendingSubmissionConfirmer interface {
-	ConfirmPending(ctx context.Context, submissionID uuid.UUID) error
+	ConfirmSubmission(ctx context.Context, submissionID uuid.UUID) error
 }
 
 // SubmissionCanceller marks a pending submission as cancelled in persistent
 // storage. Implementations must update only records with status "pending".
 type SubmissionCanceller interface {
-	CancelPending(ctx context.Context, submissionID uuid.UUID) error
+	DeleteSubmission(ctx context.Context, submissionID uuid.UUID) error
 }
 
 // SubmissionRepository is the Postgres-facing contract used by delayed
-// publication. CancelPending should set status to "cancelled".
+// publication.
 type SubmissionRepository interface {
 	PendingSubmissionConfirmer
 	SubmissionCanceller
@@ -58,7 +58,7 @@ func NewPublisher(repository PendingSubmissionConfirmer, gamification Gamificati
 // Publish moves a submission from pending to confirmed, then calculates XP and
 // streak effects.
 func (p *Publisher) Publish(ctx context.Context, submissionID uuid.UUID) error {
-	if err := p.repository.ConfirmPending(ctx, submissionID); err != nil {
+	if err := p.repository.ConfirmSubmission(ctx, submissionID); err != nil {
 		return fmt.Errorf("confirm pending submission: %w", err)
 	}
 	if err := p.gamification.ApplyConfirmedSubmission(ctx, submissionID); err != nil {

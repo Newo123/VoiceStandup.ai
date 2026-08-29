@@ -200,7 +200,7 @@ func (s *Service) Cancel(ctx context.Context, submissionID uuid.UUID) error {
 	if !cancelled {
 		return fmt.Errorf("%w: %s", ErrNotScheduled, submissionID)
 	}
-	if err := s.canceller.CancelPending(ctx, submissionID); err != nil {
+	if err := s.canceller.DeleteSubmission(ctx, submissionID); err != nil {
 		return fmt.Errorf("mark submission cancelled: %w", err)
 	}
 	return nil

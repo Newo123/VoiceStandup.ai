@@ -63,6 +63,9 @@ type OnboardingRepo interface {
 	// Если команда не найдена — возвращает (nil, nil).
 	GetTeamByTelegramChatID(ctx context.Context, chatID int64) (*domain.Teams, error)
 
+	// SaveUserStats — создаёт или обновляет статистику пользователя (XP, level, streak).
+	SaveUserStats(ctx context.Context, stats *domain.UserStats) error
+
 	// SetUserState — устанавливает состояние пользователя (FSM).
 	// Состояние хранится в поле state таблицы users.
 	// Возможные значения: "" (StateNone), "onboarded" (StateOnboarded),
@@ -92,6 +95,17 @@ func (s *OnboardingService) StartOnboarding(ctx context.Context, req *domain.Sta
 		}
 		if err := s.repo.CreateUser(ctx, user); err != nil {
 			s.logger.Error("ошибка создания пользователя", "userID", req.UserID, "error", err)
+			return nil, err
+		}
+
+		// Создаём начальную статистику для нового пользователя
+		stats := &domain.UserStats{
+			UserID: user.ID,
+			XP:     0,
+			Level:  1,
+		}
+		if err := s.repo.SaveUserStats(ctx, stats); err != nil {
+			s.logger.Error("ошибка создания статистики пользователя", "userID", req.UserID, "error", err)
 			return nil, err
 		}
 	} else {
