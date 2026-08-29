@@ -15,6 +15,7 @@ func TestLoadInfrastructureConfig(t *testing.T) {
 	t.Setenv("REDIS_CONNECT_TIMEOUT", "4s")
 	t.Setenv("LLM_API_KEY", "sk-test-llm-key")
 	t.Setenv("STT_API_KEY", "sk-test-stt-key")
+	t.Setenv("BOT_TOKEN", "test-bot-token")
 
 	cfg, err := Load()
 	if err != nil {
@@ -47,6 +48,7 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("REDIS_CONNECT_TIMEOUT", "")
 	t.Setenv("LLM_API_KEY", "sk-test-llm-key")
 	t.Setenv("STT_API_KEY", "sk-test-stt-key")
+	t.Setenv("BOT_TOKEN", "test-bot-token")
 
 	cfg, err := Load()
 	if err != nil {
@@ -95,6 +97,7 @@ func TestLoadRejectsMissingLLMAPIKey(t *testing.T) {
 	t.Setenv("REDIS_DB", "0")
 	t.Setenv("REDIS_CONNECT_TIMEOUT", "5s")
 	t.Setenv("STT_API_KEY", "sk-test-stt-key")
+	t.Setenv("BOT_TOKEN", "test-bot-token")
 	// LLM_API_KEY intentionally left unset
 
 	_, err := Load()
@@ -111,6 +114,7 @@ func TestLoadRejectsMissingSTTAPIKey(t *testing.T) {
 	t.Setenv("REDIS_DB", "0")
 	t.Setenv("REDIS_CONNECT_TIMEOUT", "5s")
 	t.Setenv("LLM_API_KEY", "sk-test-llm-key")
+	t.Setenv("BOT_TOKEN", "test-bot-token")
 	// STT_API_KEY intentionally left unset
 
 	_, err := Load()
