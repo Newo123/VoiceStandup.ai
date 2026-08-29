@@ -10,13 +10,12 @@ import (
 )
 
 // PendingSubmissionConfirmer confirms a pending submission in persistent
-// storage. Implementations must update only records with status "pending".
+// storage. Implementations must update only records awaiting confirmation.
 type PendingSubmissionConfirmer interface {
 	ConfirmSubmission(ctx context.Context, submissionID uuid.UUID) error
 }
 
-// SubmissionCanceller marks a pending submission as cancelled in persistent
-// storage. Implementations must update only records with status "pending".
+// SubmissionCanceller removes a submission that is awaiting confirmation.
 type SubmissionCanceller interface {
 	DeleteSubmission(ctx context.Context, submissionID uuid.UUID) error
 }

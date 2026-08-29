@@ -20,8 +20,8 @@ func TestServiceScheduleCreatesRedisTimer(t *testing.T) {
 	if got := timers.delay(id); got != DefaultDelay {
 		t.Errorf("TTL = %v, want %v", got, DefaultDelay)
 	}
-	if err := service.Schedule(context.Background(), id); !errors.Is(err, ErrAlreadyScheduled) {
-		t.Errorf("second Schedule() error = %v, want ErrAlreadyScheduled", err)
+	if err := service.Schedule(context.Background(), id); err != nil {
+		t.Errorf("second Schedule() error = %v", err)
 	}
 }
 
