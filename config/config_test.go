@@ -16,6 +16,9 @@ func TestLoadInfrastructureConfig(t *testing.T) {
 	t.Setenv("LLM_API_KEY", "sk-test-llm-key")
 	t.Setenv("STT_API_KEY", "sk-test-stt-key")
 	t.Setenv("BOT_TOKEN", "test-bot-token")
+	t.Setenv("HTTP_ADDR", "127.0.0.1:9090")
+	t.Setenv("HTTP_SHUTDOWN_TIMEOUT", "7s")
+	t.Setenv("TELEGRAM_AUTH_MAX_AGE", "10m")
 
 	cfg, err := Load()
 	if err != nil {
@@ -37,6 +40,12 @@ func TestLoadInfrastructureConfig(t *testing.T) {
 	if cfg.Redis.ConnectTimeout != 4*time.Second {
 		t.Fatalf("Redis.ConnectTimeout = %v", cfg.Redis.ConnectTimeout)
 	}
+	if cfg.HTTP.Address != "127.0.0.1:9090" {
+		t.Fatalf("HTTP.Address = %q", cfg.HTTP.Address)
+	}
+	if cfg.HTTP.ShutdownTimeout != 7*time.Second || cfg.HTTP.TelegramAuthAge != 10*time.Minute {
+		t.Fatalf("HTTP timeouts = %v/%v", cfg.HTTP.ShutdownTimeout, cfg.HTTP.TelegramAuthAge)
+	}
 }
 
 func TestLoadUsesDefaults(t *testing.T) {
@@ -49,6 +58,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("LLM_API_KEY", "sk-test-llm-key")
 	t.Setenv("STT_API_KEY", "sk-test-stt-key")
 	t.Setenv("BOT_TOKEN", "test-bot-token")
+	t.Setenv("HTTP_ADDR", "")
+	t.Setenv("HTTP_SHUTDOWN_TIMEOUT", "")
+	t.Setenv("TELEGRAM_AUTH_MAX_AGE", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -63,6 +75,12 @@ func TestLoadUsesDefaults(t *testing.T) {
 	}
 	if cfg.Redis.DB != 0 {
 		t.Fatalf("Redis.DB = %d", cfg.Redis.DB)
+	}
+	if cfg.HTTP.Address != defaultHTTPAddress || cfg.HTTP.ShutdownTimeout != defaultHTTPShutdownTimeout {
+		t.Fatalf("HTTP defaults = %q/%v", cfg.HTTP.Address, cfg.HTTP.ShutdownTimeout)
+	}
+	if cfg.HTTP.TelegramAuthAge != defaultTelegramAuthMaxAge {
+		t.Fatalf("HTTP.TelegramAuthAge = %v", cfg.HTTP.TelegramAuthAge)
 	}
 }
 
