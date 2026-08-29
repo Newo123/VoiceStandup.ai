@@ -10,7 +10,8 @@ migrations/
 ├── Dockerfile
 ├── README.md
 ├── 20260821215711_initial_schema.sql
-└── 20260826000000_add_user_state_and_user_stats.sql
+├── 20260826000000_add_user_state_and_user_stats.sql
+└── 20260829000000_add_submission_format_and_active_team.sql
 ```
 
 Каждый SQL-файл миграции содержит секции `Up` и `Down`:

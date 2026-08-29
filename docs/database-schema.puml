@@ -12,6 +12,7 @@ entity users {
   username : varchar
   display_name : varchar
 - state : varchar
+  active_team_id : uuid <<FK>>
 - created_at : timestamptz
   deleted_at : timestamptz
 }
@@ -55,6 +56,7 @@ entity submissions {
 - user_id : uuid <<FK>>
 - standup_date : date
 - status : varchar
+- format : varchar
   done_text : text
   plans_text : text
   blockers_text : text
@@ -82,6 +84,7 @@ teams ||--o{ team_members
 users ||--o{ submissions
 teams ||--o{ submissions
 users ||--o| user_stats
+teams |o--o{ users : active team
 
 note right of teams
   timezone — IANA, например Europe/Moscow.
@@ -98,6 +101,8 @@ note right of submissions
   awaiting_confirmation
   confirmed
   failed
+
+  format: text | voice
 end note
 
 note right of user_stats

@@ -31,7 +31,7 @@ func (t *TextProcessor) ProcessText(ctx context.Context, rawText string) (*domai
 		return nil, fmt.Errorf("llm: сырой текст пуст")
 	}
 
-	systemPrompt := `Ты — ассистент для стендап-отчетов. Проанализируй текст отчета пользователя и разбей его по категориям. Верни СТРОГО JSON без markdown-разметки: {"done": "что сделано", "in_progress": "что в работе", "blockers": "блокеры или нет"}`
+	systemPrompt := `Ты — ассистент для стендап-отчетов. Проанализируй текст отчета пользователя и разбей его по категориям. Верни СТРОГО JSON без markdown-разметки: {"done": "что сделано", "plans": "что в планах", "blockers": "блокеры или нет"}`
 
 	result, err := t.llm.Complete(ctx, systemPrompt, rawText)
 	if err != nil {

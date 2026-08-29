@@ -36,7 +36,7 @@ func (v *VoiceProcessor) ProcessVoice(ctx context.Context, audioBytes []byte) (*
 		return nil, fmt.Errorf("llm: ошибка stt-транскрибации: %w", err)
 	}
 
-	systemPrompt := `Ты — ассистент для стендап-отчетов. Пользователь надиктовал отчет голосом. Исправь галлюцинации STT, артефакты речи, пунктуацию и структурируй текст. Верни СТРОГО JSON без markdown-разметки: {"done": "что сделано", "in_progress": "что в работе", "blockers": "блокеры или нет"}`
+	systemPrompt := `Ты — ассистент для стендап-отчетов. Пользователь надиктовал отчет голосом. Исправь галлюцинации STT, артефакты речи, пунктуацию и структурируй текст. Верни СТРОГО JSON без markdown-разметки: {"done": "что сделано", "plans": "что в планах", "blockers": "блокеры или нет"}`
 
 	result, err := v.llm.Complete(ctx, systemPrompt, rawText)
 	if err != nil {

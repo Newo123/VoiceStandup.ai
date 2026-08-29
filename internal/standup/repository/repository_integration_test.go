@@ -112,6 +112,13 @@ func TestRepositoryCRUDIntegration(t *testing.T) {
 	if err := repo.SaveUserRoleInTeam(ctx, user.ID, team.ID, "developer"); err != nil {
 		t.Fatalf("SaveUserRoleInTeam() error = %v", err)
 	}
+	if err := repo.SetActiveTeam(ctx, user, team.ID); err != nil {
+		t.Fatalf("SetActiveTeam() error = %v", err)
+	}
+	loadedUser, err = repo.GetActiveUserByTelegramID(ctx, user.TelegramUserID)
+	if err != nil || loadedUser == nil || loadedUser.ActiveTeamID == nil || *loadedUser.ActiveTeamID != team.ID {
+		t.Fatalf("GetActiveUserByTelegramID() active team user = %v, error = %v", loadedUser, err)
+	}
 	members, err := repo.GetTeamMembers(ctx, team.ID)
 	if err != nil || len(members) != 1 || members[0].Role != "developer" {
 		t.Fatalf("GetTeamMembers() members = %v, error = %v", members, err)
@@ -122,7 +129,8 @@ func TestRepositoryCRUDIntegration(t *testing.T) {
 		TeamID:      team.ID,
 		UserID:      user.ID,
 		StandupDate: standupDate,
-		Status:      "awaiting_confirmation",
+		Status:      domain.SubmissionStatusAwaitingConfirmation,
+		Format:      domain.SubmissionFormatVoice,
 		DoneText:    stringPointer("Implemented repository"),
 		PlansText:   stringPointer("Add integration tests"),
 	}
@@ -138,6 +146,9 @@ func TestRepositoryCRUDIntegration(t *testing.T) {
 	}
 	if submissions[0].StandupDate.Format(time.DateOnly) != standupDate.Format(time.DateOnly) {
 		t.Fatalf("StandupDate = %v", submissions[0].StandupDate)
+	}
+	if submissions[0].Format != domain.SubmissionFormatVoice {
+		t.Fatalf("Format = %q", submissions[0].Format)
 	}
 
 	stats.XP = 100

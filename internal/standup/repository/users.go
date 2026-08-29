@@ -16,6 +16,7 @@ func (r *Repository) CreateUser(ctx context.Context, user *domain.Users) error {
 		RETURNING
 			id,
 			state,
+			active_team_id,
 			telegram_user_id,
 			COALESCE(username, ''),
 			COALESCE(display_name, ''),
@@ -40,6 +41,7 @@ func (r *Repository) GetUserByID(ctx context.Context, userID uuid.UUID) (*domain
 		SELECT
 			id,
 			state,
+			active_team_id,
 			telegram_user_id,
 			COALESCE(username, ''),
 			COALESCE(display_name, ''),
@@ -61,6 +63,7 @@ func (r *Repository) GetActiveUserByTelegramID(ctx context.Context, telegramUser
 		SELECT
 			id,
 			state,
+			active_team_id,
 			telegram_user_id,
 			COALESCE(username, ''),
 			COALESCE(display_name, ''),
@@ -85,6 +88,7 @@ func (r *Repository) UpdateUser(ctx context.Context, user *domain.Users) error {
 		RETURNING
 			id,
 			state,
+			active_team_id,
 			telegram_user_id,
 			COALESCE(username, ''),
 			COALESCE(display_name, ''),
@@ -118,6 +122,30 @@ func (r *Repository) SetUserState(ctx context.Context, user *domain.Users, state
 	return nil
 }
 
+func (r *Repository) SetActiveTeam(ctx context.Context, user *domain.Users, teamID uuid.UUID) error {
+	commandTag, err := r.db.Exec(ctx, `
+		UPDATE users AS u
+		SET active_team_id = $2
+		WHERE u.id = $1
+			AND u.deleted_at IS NULL
+			AND EXISTS (
+				SELECT 1
+				FROM team_members AS tm
+				WHERE tm.user_id = u.id
+					AND tm.team_id = $2
+					AND tm.status = 'active'
+					AND tm.deleted_at IS NULL
+			)`, user.ID, teamID)
+	if err != nil {
+		return wrapError("set active team", err)
+	}
+	if err := ensureAffected("set active team", commandTag.RowsAffected()); err != nil {
+		return err
+	}
+	user.ActiveTeamID = &teamID
+	return nil
+}
+
 func (r *Repository) SoftDeleteUser(ctx context.Context, userID uuid.UUID) error {
 	commandTag, err := r.db.Exec(ctx, `
 		UPDATE users
@@ -134,6 +162,7 @@ func scanUser(row rowScanner) (*domain.Users, error) {
 	err := row.Scan(
 		&user.ID,
 		&user.State,
+		&user.ActiveTeamID,
 		&user.TelegramUserID,
 		&user.Username,
 		&user.DisplayName,
