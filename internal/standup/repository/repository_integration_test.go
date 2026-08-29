@@ -25,6 +25,7 @@ func TestRepositoryCRUDIntegration(t *testing.T) {
 
 	repo := New(pool)
 	uniqueID := time.Now().UnixNano()
+	ownerTeamChatID := -uniqueID - 1
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cleanupCancel()
@@ -35,9 +36,9 @@ func TestRepositoryCRUDIntegration(t *testing.T) {
 			args []any
 		}{
 			{"user stats", `DELETE FROM user_stats WHERE user_id IN (SELECT id FROM users WHERE telegram_user_id = $1)`, []any{uniqueID}},
-			{"submissions", `DELETE FROM submissions WHERE team_id IN (SELECT id FROM teams WHERE telegram_chat_id = $1)`, []any{-uniqueID}},
-			{"team members", `DELETE FROM team_members WHERE team_id IN (SELECT id FROM teams WHERE telegram_chat_id = $1)`, []any{-uniqueID}},
-			{"team", `DELETE FROM teams WHERE telegram_chat_id = $1`, []any{-uniqueID}},
+			{"submissions", `DELETE FROM submissions WHERE user_id IN (SELECT id FROM users WHERE telegram_user_id = $1)`, []any{uniqueID}},
+			{"team members", `DELETE FROM team_members WHERE user_id IN (SELECT id FROM users WHERE telegram_user_id = $1)`, []any{uniqueID}},
+			{"teams", `DELETE FROM teams WHERE telegram_chat_id IN ($1, $2)`, []any{-uniqueID, ownerTeamChatID}},
 			{"user", `DELETE FROM users WHERE telegram_user_id = $1`, []any{uniqueID}},
 		}
 		for _, query := range queries {
@@ -163,6 +164,35 @@ func TestRepositoryCRUDIntegration(t *testing.T) {
 	if err != nil || loadedStats == nil || loadedStats.XP != 100 || loadedStats.Level != 2 || loadedStats.CurrentStreak != 2 {
 		t.Fatalf("GetUserStats() stats = %v, error = %v", loadedStats, err)
 	}
+
+	ownerTeam := &domain.Teams{
+		Name:             "Owner Team",
+		TelegramChatID:   ownerTeamChatID,
+		Timezone:         "Europe/Moscow",
+		PublishLocalTime: time.Date(0, time.January, 1, 10, 0, 0, 0, time.UTC),
+		Workdays:         []int{1, 2, 3, 4, 5},
+		LatePolicy:       domain.LatePolicyNextDigest,
+	}
+	if err := repo.CreateTeamForOwner(ctx, user, ownerTeam); err != nil {
+		t.Fatalf("CreateTeamForOwner() error = %v", err)
+	}
+	membership, err := repo.GetTeamMembership(ctx, user.ID, ownerTeam.ID)
+	if err != nil || membership == nil || !membership.IsOwner {
+		t.Fatalf("GetTeamMembership() membership = %v, error = %v", membership, err)
+	}
+	memberships, err := repo.GetTeamsByUserID(ctx, user.ID)
+	if err != nil || len(memberships) != 2 {
+		t.Fatalf("GetTeamsByUserID() memberships = %v, error = %v", memberships, err)
+	}
+	memberStats, err := repo.GetTeamMemberStats(ctx, ownerTeam.ID)
+	if err != nil || len(memberStats) != 1 || memberStats[0].XP != 100 {
+		t.Fatalf("GetTeamMemberStats() members = %v, error = %v", memberStats, err)
+	}
+	loadedUser, err = repo.GetActiveUserByTelegramID(ctx, user.TelegramUserID)
+	if err != nil || loadedUser == nil || loadedUser.ActiveTeamID == nil || *loadedUser.ActiveTeamID != ownerTeam.ID {
+		t.Fatalf("active team after CreateTeamForOwner() user = %v, error = %v", loadedUser, err)
+	}
+
 	invalidStats := *stats
 	invalidStats.XP = -1
 	if err := repo.SaveUserStats(ctx, &invalidStats); err == nil {
