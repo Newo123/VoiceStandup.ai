@@ -55,12 +55,6 @@ type StandupTGBotTeamRequestDTO struct {
 	TeamID int64 // ChatID команды
 }
 
-type StandupTGBotVoiceRequestDTO struct {
-	StandupTGBotBaseRequestDTO
-	VoiceFileID string
-	Duration    int // seconds
-}
-
 type StandupTGBotResponseDTO struct {
 	TargetChatID int64
 	Text         string

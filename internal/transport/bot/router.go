@@ -34,6 +34,12 @@ func (s *StandupTGBot) route(ctx context.Context, update tgbotapi.Update) error 
 	}
 
 	msg := update.Message
+	if msg.From == nil {
+		return nil
+	}
+	if !msg.Chat.IsPrivate() {
+		return nil
+	}
 	userID := msg.From.ID
 
 	// 3. сценарий: ОТДЕЛЯЕМ КОМАНДЫ (например, /start)
@@ -43,7 +49,6 @@ func (s *StandupTGBot) route(ctx context.Context, update tgbotapi.Update) error 
 			return s.handleStart(ctx, msg)
 		}
 	}
-
 	// 4. сценарий: ГОЛОСОВОЕ/ОБЫЧНЫЙ ТЕКСТ
 	userState, err := s.onboard.GetUserState(ctx, userID)
 	if err != nil {
