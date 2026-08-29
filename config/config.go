@@ -15,6 +15,8 @@ const defaultConnectTimeout = 5 * time.Second
 type Config struct {
 	Postgres Postgres
 	Redis    Redis
+	LLM      LLM
+	STT      STT
 }
 
 type Postgres struct {
@@ -27,6 +29,20 @@ type Redis struct {
 	Password       string
 	DB             int
 	ConnectTimeout time.Duration
+}
+
+// LLM содержит настройки для OpenRouter chat completions API.
+type LLM struct {
+	APIKey  string
+	Model   string
+	Timeout time.Duration
+}
+
+// STT содержит настройки для OpenRouter audio transcriptions API.
+type STT struct {
+	APIKey  string
+	Model   string
+	Timeout time.Duration
 }
 
 // Load читает конфигурацию из переменных окружения и проверяет настройки
@@ -47,6 +63,16 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	llmTimeout, err := envDuration("LLM_TIMEOUT", 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+
+	sttTimeout, err := envDuration("STT_TIMEOUT", 60*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		Postgres: Postgres{
 			URL:            strings.TrimSpace(os.Getenv("DATABASE_URL")),
@@ -57,6 +83,16 @@ func Load() (Config, error) {
 			Password:       os.Getenv("REDIS_PASSWORD"),
 			DB:             redisDB,
 			ConnectTimeout: redisTimeout,
+		},
+		LLM: LLM{
+			APIKey:  os.Getenv("LLM_API_KEY"),
+			Model:   envString("LLM_MODEL", "openai/gpt-4o-mini"),
+			Timeout: llmTimeout,
+		},
+		STT: STT{
+			APIKey:  os.Getenv("STT_API_KEY"),
+			Model:   envString("STT_MODEL", "openai/whisper-large-v3-turbo"),
+			Timeout: sttTimeout,
 		},
 	}
 
@@ -85,6 +121,18 @@ func (c Config) Validate() error {
 	}
 	if c.Redis.DB < 0 {
 		return errors.New("REDIS_DB must not be negative")
+	}
+	if c.LLM.APIKey == "" {
+		return errors.New("LLM_API_KEY is required")
+	}
+	if c.STT.APIKey == "" {
+		return errors.New("STT_API_KEY is required")
+	}
+	if c.LLM.Timeout <= 0 {
+		return errors.New("LLM_TIMEOUT must be positive")
+	}
+	if c.STT.Timeout <= 0 {
+		return errors.New("STT_TIMEOUT must be positive")
 	}
 	return nil
 }
