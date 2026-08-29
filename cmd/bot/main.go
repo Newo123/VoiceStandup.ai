@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"VoiceStandup.ai/config"
 	corellm "VoiceStandup.ai/internal/core/llm"
@@ -14,6 +15,14 @@ import (
 	coreredis "VoiceStandup.ai/internal/core/redis"
 	"VoiceStandup.ai/internal/core/repository/postgres"
 	corestt "VoiceStandup.ai/internal/core/stt"
+	coretelegram "VoiceStandup.ai/internal/core/transport/telegram"
+	"VoiceStandup.ai/internal/standup/delayed_publish"
+	"VoiceStandup.ai/internal/standup/digest"
+	"VoiceStandup.ai/internal/standup/gamification"
+	"VoiceStandup.ai/internal/standup/onboarding"
+	"VoiceStandup.ai/internal/standup/repository"
+	"VoiceStandup.ai/internal/transport/bot"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
 )
 
@@ -91,6 +100,88 @@ func run() error {
 	_ = textProcessor // будет использован при обработке текстовых сообщений
 
 	slog.Info("llm and stt modules initialized successfully")
+
+	// Инициализация Telegram Bot API
+	tgBot, err := tgbotapi.NewBotAPI(cfg.Telegram.BotToken)
+	if err != nil {
+		log.Fatalf("creating telegram bot: %v", err)
+	}
+	tgBot.Debug = false
+	slog.Info("telegram bot authorized", slog.String("username", tgBot.Self.UserName))
+
+	// Инициализация репозитория (общий для всех сервисов)
+	repo := repository.New(db)
+
+	// Инициализация сервиса онбординга
+	onboardSvc := onboarding.NewOnboardingService(repo)
+
+	// Инициализация сервиса геймификации
+	gamificationSvc := gamification.NewGamificationService(repo, nil)
+
+	// Инициализация RedisStore для отложенной публикации
+	redisStore, err := delayed_publish.NewRedisStore(cache, cfg.Redis.DB)
+	if err != nil {
+		log.Fatalf("creating redis store: %v", err)
+	}
+
+	// Инициализация Publisher (подтверждение + геймификация)
+	publisher, err := delayed_publish.NewPublisher(repo, gamificationSvc)
+	if err != nil {
+		log.Fatalf("creating publisher: %v", err)
+	}
+
+	// Инициализация Worker (слушает истечение TTL в Redis)
+	worker, err := delayed_publish.NewWorker(publisher)
+	if err != nil {
+		log.Fatalf("creating worker: %v", err)
+	}
+
+	// Инициализация сервиса отложенной публикации (Schedule / Cancel / ConfirmNow)
+	delayedSvc, err := delayed_publish.NewService(redisStore, repo, publisher)
+	if err != nil {
+		log.Fatalf("creating delayed publish service: %v", err)
+	}
+	_ = delayedSvc // будет использован при подтверждении/отмене отчёта
+
+	// Инициализация сервиса дайджеста (проверка каждые 30 секунд)
+	tgClient := coretelegram.NewClient(tgBot)
+	digestSvc := digest.NewDigestService(repo, tgClient, 30*time.Second)
+
+	// Инициализация Telegram-бота
+	// TODO: заменить nil на реальные сервисы, когда они будут готовы:
+	//   - StandupIngestionService (голосовой/текстовый стендап)
+	//   - StandupConfirmationService (подтверждение/отмена отчёта)
+	standupBot := bot.NewStandupTGBot(tgBot, onboardSvc, nil, nil)
+
+	// Запуск обработки обновлений Telegram
+	go func() {
+		slog.Info("starting telegram bot updates listener")
+		if err := standupBot.GetUpdates(shutdownCtx); err != nil {
+			slog.Error("telegram bot updates listener stopped", slog.Any("error", err))
+		}
+	}()
+
+	// Запуск Worker отложенной публикации (слушает истечение TTL в Redis)
+	go func() {
+		slog.Info("starting delayed publish worker")
+		if err := worker.Run(shutdownCtx, redisStore); err != nil && err != context.Canceled {
+			slog.Error("delayed publish worker stopped", slog.Any("error", err))
+		}
+	}()
+
+	// Запуск сервиса дайджеста (публикация по расписанию)
+	go func() {
+		slog.Info("starting digest service")
+		if err := digestSvc.Start(shutdownCtx); err != nil && err != context.Canceled {
+			slog.Error("digest service stopped", slog.Any("error", err))
+		}
+	}()
+
+	// Ожидание сигнала завершения
+	<-shutdownCtx.Done()
+	slog.Info("shutting down telegram bot...")
+	standupBot.Stop()
+	standupBot.Wait()
 
 	return nil
 }

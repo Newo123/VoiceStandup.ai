@@ -52,10 +52,10 @@ const (
 
 // GamificationRepo читает и обновляет данные геймификации в PostgreSQL.
 type GamificationRepo interface {
-	GetSubmission(ctx context.Context, submissionID uuid.UUID) (domain.Submissions, error)
-	GetTeam(ctx context.Context, teamID uuid.UUID) (domain.Teams, error)
-	GetUserStats(ctx context.Context, userID uuid.UUID) (domain.UserStats, error)
-	UpdateUserStats(ctx context.Context, stats domain.UserStats) error
+	GetSubmissionByID(ctx context.Context, submissionID uuid.UUID) (*domain.Submissions, error)
+	GetTeamByUUID(ctx context.Context, teamID uuid.UUID) (*domain.Teams, error)
+	GetUserStats(ctx context.Context, userID uuid.UUID) (*domain.UserStats, error)
+	SaveUserStats(ctx context.Context, stats *domain.UserStats) error
 }
 
 // Clock — обёртка над time.Now() для тестирования.
@@ -93,19 +93,28 @@ func NewGamificationService(repo GamificationRepo, clock Clock) *GamificationSer
 // Загружает подтверждённую сдачу, рассчитывает XP, стрики и уровень, сохраняет результат.
 func (g *GamificationService) ApplyConfirmedSubmission(ctx context.Context, submissionID uuid.UUID) error {
 	// ---- Загрузка данных ----
-	submission, err := g.repo.GetSubmission(ctx, submissionID)
+	submission, err := g.repo.GetSubmissionByID(ctx, submissionID)
 	if err != nil {
 		return fmt.Errorf("ошибка загрузки сдачи %s: %w", submissionID, err)
 	}
+	if submission == nil {
+		return fmt.Errorf("сдача %s не найдена", submissionID)
+	}
 
-	team, err := g.repo.GetTeam(ctx, submission.TeamID)
+	team, err := g.repo.GetTeamByUUID(ctx, submission.TeamID)
 	if err != nil {
 		return fmt.Errorf("ошибка загрузки команды %s: %w", submission.TeamID, err)
+	}
+	if team == nil {
+		return fmt.Errorf("команда %s не найдена", submission.TeamID)
 	}
 
 	stats, err := g.repo.GetUserStats(ctx, submission.UserID)
 	if err != nil {
 		return fmt.Errorf("ошибка загрузки статистики пользователя %s: %w", submission.UserID, err)
+	}
+	if stats == nil {
+		return fmt.Errorf("статистика пользователя %s не найдена", submission.UserID)
 	}
 
 	// ---- Шаг 1: Базовый XP (время + формат) ----
@@ -143,7 +152,7 @@ func (g *GamificationService) ApplyConfirmedSubmission(ctx context.Context, subm
 	newLevel := calculateLevel(newTotalXP)
 
 	// ---- Сохранение ----
-	updatedStats := domain.UserStats{
+	updatedStats := &domain.UserStats{
 		UserID:          submission.UserID,
 		XP:              newTotalXP,
 		Level:           newLevel,
@@ -152,7 +161,7 @@ func (g *GamificationService) ApplyConfirmedSubmission(ctx context.Context, subm
 		LastStandupDate: &today,
 	}
 
-	if err := g.repo.UpdateUserStats(ctx, updatedStats); err != nil {
+	if err := g.repo.SaveUserStats(ctx, updatedStats); err != nil {
 		return fmt.Errorf("ошибка обновления статистики пользователя %s: %w", submission.UserID, err)
 	}
 

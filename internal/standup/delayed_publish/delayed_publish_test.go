@@ -37,7 +37,7 @@ func TestServiceCancelRemovesTimerAndCancelsSubmission(t *testing.T) {
 		t.Fatalf("Cancel() error = %v", err)
 	}
 	if !canceller.wasCancelled(id) {
-		t.Error("CancelPending() was not called")
+		t.Error("DeleteSubmission() was not called")
 	}
 	if err := service.Cancel(context.Background(), id); !errors.Is(err, ErrNotScheduled) {
 		t.Errorf("second Cancel() error = %v, want ErrNotScheduled", err)
@@ -190,7 +190,7 @@ type recordingCanceller struct {
 	cancelled []uuid.UUID
 }
 
-func (c *recordingCanceller) CancelPending(_ context.Context, id uuid.UUID) error {
+func (c *recordingCanceller) DeleteSubmission(_ context.Context, id uuid.UUID) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cancelled = append(c.cancelled, id)
@@ -215,7 +215,9 @@ func (s fakeSubscriber) SubscribeExpired(context.Context) (<-chan uuid.UUID, fun
 
 type repositoryFunc func(context.Context, uuid.UUID) error
 
-func (fn repositoryFunc) ConfirmPending(ctx context.Context, id uuid.UUID) error { return fn(ctx, id) }
+func (fn repositoryFunc) ConfirmSubmission(ctx context.Context, id uuid.UUID) error {
+	return fn(ctx, id)
+}
 
 type gamificationFunc func(context.Context, uuid.UUID) error
 
