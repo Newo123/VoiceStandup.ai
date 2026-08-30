@@ -79,6 +79,42 @@ func TestWorkerPublishesExpirationEvents(t *testing.T) {
 	}
 }
 
+func TestWorkerUsesBoundedPublishContext(t *testing.T) {
+	publisher := &contextRecordingPublisher{contexts: make(chan context.Context, 1)}
+	worker, err := NewWorker(publisher)
+	if err != nil {
+		t.Fatalf("NewWorker() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := make(chan uuid.UUID, 1)
+	done := make(chan error, 1)
+	go func() { done <- worker.Run(ctx, fakeSubscriber{events: events}) }()
+	events <- uuid.New()
+
+	publishCtx := <-publisher.contexts
+	deadline, ok := publishCtx.Deadline()
+	if !ok || time.Until(deadline) > PublishTimeout {
+		t.Errorf("publish context deadline = %v, want a deadline within %v", deadline, PublishTimeout)
+	}
+	cancel()
+	<-done
+}
+
+func TestWorkerReportsUnexpectedSubscriptionClosure(t *testing.T) {
+	worker, err := NewWorker(newRecordingPublisher())
+	if err != nil {
+		t.Fatalf("NewWorker() error = %v", err)
+	}
+	events := make(chan uuid.UUID)
+	close(events)
+
+	err = worker.Run(context.Background(), fakeSubscriber{events: events})
+	if !errors.Is(err, ErrSubscriptionClosed) {
+		t.Errorf("Worker.Run() error = %v, want ErrSubscriptionClosed", err)
+	}
+}
+
 func TestRedisStoreParsesOnlyDelayedPublishKeys(t *testing.T) {
 	store := &RedisStore{prefix: "delayed_publish:"}
 	id := uuid.New()
@@ -165,6 +201,15 @@ func (s *fakeTimerStore) delay(id uuid.UUID) time.Duration {
 type recordingPublisher struct {
 	mu        sync.Mutex
 	published []uuid.UUID
+}
+
+type contextRecordingPublisher struct {
+	contexts chan context.Context
+}
+
+func (p *contextRecordingPublisher) Publish(ctx context.Context, _ uuid.UUID) error {
+	p.contexts <- ctx
+	return nil
 }
 
 func newRecordingPublisher() *recordingPublisher { return &recordingPublisher{} }

@@ -6,18 +6,23 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
-const DefaultDelay = 2 * time.Minute
+const (
+	DefaultDelay   = 2 * time.Minute
+	PublishTimeout = 10 * time.Second
+)
 
 var (
 	ErrInvalidSubmissionID = errors.New("submission ID is required")
 	ErrAlreadyScheduled    = errors.New("submission is already scheduled")
 	ErrNotScheduled        = errors.New("submission is not scheduled")
+	ErrSubscriptionClosed  = errors.New("expiration subscription closed")
 )
 
 // TimerStore persists delayed-publication timers and must survive restarts.
@@ -73,12 +78,23 @@ func (s *RedisStore) SubscribeExpired(ctx context.Context) (<-chan uuid.UUID, fu
 	pubsub := s.client.PSubscribe(ctx, fmt.Sprintf("__keyevent@%d__:expired", s.db))
 	messages := pubsub.Channel()
 	ids := make(chan uuid.UUID)
+	subscriptionCtx, cancel := context.WithCancel(ctx)
+
+	var closeOnce sync.Once
+	var closeErr error
+	closeSubscription := func() error {
+		closeOnce.Do(func() {
+			cancel()
+			closeErr = pubsub.Close()
+		})
+		return closeErr
+	}
 
 	go func() {
 		defer close(ids)
 		for {
 			select {
-			case <-ctx.Done():
+			case <-subscriptionCtx.Done():
 				return
 			case message, ok := <-messages:
 				if !ok {
@@ -90,14 +106,14 @@ func (s *RedisStore) SubscribeExpired(ctx context.Context) (<-chan uuid.UUID, fu
 				}
 				select {
 				case ids <- submissionID:
-				case <-ctx.Done():
+				case <-subscriptionCtx.Done():
 					return
 				}
 			}
 		}
 	}()
 
-	return ids, pubsub.Close, nil
+	return ids, closeSubscription, nil
 }
 
 func (s *RedisStore) key(submissionID uuid.UUID) string { return s.prefix + submissionID.String() }
@@ -142,9 +158,15 @@ func (w *Worker) Run(ctx context.Context, subscriber ExpirationSubscriber) error
 			return ctx.Err()
 		case submissionID, ok := <-events:
 			if !ok {
-				return nil
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				return ErrSubscriptionClosed
 			}
-			if err := w.publisher.Publish(context.Background(), submissionID); err != nil {
+			publishCtx, cancel := context.WithTimeout(ctx, PublishTimeout)
+			err := w.publisher.Publish(publishCtx, submissionID)
+			cancel()
+			if err != nil {
 				w.logger.Error("could not publish delayed submission", "submission_id", submissionID, "error", err)
 			}
 		}
