@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 )
 
 // Config содержит параметры настройки логирования
@@ -23,6 +24,14 @@ func initLogger(cfg Config) (func(), error) {
 
 	// Если указан путь к файлу, открываем его
 	if cfg.FilePath != "" {
+		// Автоматически создаём директорию, если её нет
+		dir := filepath.Dir(cfg.FilePath)
+		if dir != "." {
+			if mkErr := os.MkdirAll(dir, 0755); mkErr != nil {
+				return nil, fmt.Errorf("ошибка создания директории для логов: %w", mkErr)
+			}
+		}
+
 		file, err = os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 		if err != nil {
 			return nil, fmt.Errorf("ошибка открытия файла логов: %w", err)

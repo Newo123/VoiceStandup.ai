@@ -22,7 +22,7 @@ type Repository interface {
 }
 
 type Lifecycle interface {
-	ConfirmNow(ctx context.Context, submissionID uuid.UUID) error
+	ConfirmNow(ctx context.Context, submissionID uuid.UUID) (*domain.UserStats, error)
 	Cancel(ctx context.Context, submissionID uuid.UUID) error
 }
 
@@ -41,14 +41,15 @@ func NewService(repository Repository, lifecycle Lifecycle) (*Service, error) {
 	return &Service{repository: repository, lifecycle: lifecycle}, nil
 }
 
-func (s *Service) ConfirmNow(ctx context.Context, telegramUserID int64, submissionID uuid.UUID) error {
+func (s *Service) ConfirmNow(ctx context.Context, telegramUserID int64, submissionID uuid.UUID) (*domain.UserStats, error) {
 	if err := s.authorize(ctx, telegramUserID, submissionID); err != nil {
-		return err
+		return nil, err
 	}
-	if err := s.lifecycle.ConfirmNow(ctx, submissionID); err != nil {
-		return fmt.Errorf("confirmation: confirm submission: %w", err)
+	stats, err := s.lifecycle.ConfirmNow(ctx, submissionID)
+	if err != nil {
+		return nil, fmt.Errorf("confirmation: confirm submission: %w", err)
 	}
-	return nil
+	return stats, nil
 }
 
 func (s *Service) Cancel(ctx context.Context, telegramUserID int64, submissionID uuid.UUID) error {

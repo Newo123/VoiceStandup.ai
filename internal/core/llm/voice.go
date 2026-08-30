@@ -43,8 +43,9 @@ func (v *VoiceProcessor) ProcessVoice(ctx context.Context, audioBytes []byte) (*
 		return nil, fmt.Errorf("llm: ошибка llm-обработки голоса: %w", err)
 	}
 
+	clean := stripMarkdownCodeBlock(result)
 	var resp domain.StandupResponse
-	if err := json.Unmarshal([]byte(result), &resp); err != nil {
+	if err := json.Unmarshal([]byte(clean), &resp); err != nil {
 		return nil, fmt.Errorf("llm: ошибка парсинга ответа голосового процессора: %w", err)
 	}
 

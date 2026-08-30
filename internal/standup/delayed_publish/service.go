@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"VoiceStandup.ai/internal/core/domain"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
@@ -143,7 +144,7 @@ func (w *Worker) Run(ctx context.Context, subscriber ExpirationSubscriber) error
 			if !ok {
 				return nil
 			}
-			if err := w.publisher.Publish(context.Background(), submissionID); err != nil {
+			if _, err := w.publisher.Publish(context.Background(), submissionID); err != nil {
 				w.logger.Error("could not publish delayed submission", "submission_id", submissionID, "error", err)
 			}
 		}
@@ -205,16 +206,16 @@ func (s *Service) Cancel(ctx context.Context, submissionID uuid.UUID) error {
 }
 
 // ConfirmNow deletes the Redis key and immediately publishes submissionID.
-func (s *Service) ConfirmNow(ctx context.Context, submissionID uuid.UUID) error {
+func (s *Service) ConfirmNow(ctx context.Context, submissionID uuid.UUID) (*domain.UserStats, error) {
 	if err := validateRequest(ctx, submissionID); err != nil {
-		return err
+		return nil, err
 	}
 	cancelled, err := s.timers.Cancel(ctx, submissionID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !cancelled {
-		return fmt.Errorf("%w: %s", ErrNotScheduled, submissionID)
+		return nil, fmt.Errorf("%w: %s", ErrNotScheduled, submissionID)
 	}
 	return s.publisher.Publish(ctx, submissionID)
 }
