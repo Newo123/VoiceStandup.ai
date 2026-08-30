@@ -16,7 +16,6 @@ const DefaultDelay = 2 * time.Minute
 
 var (
 	ErrInvalidSubmissionID = errors.New("submission ID is required")
-	ErrAlreadyScheduled    = errors.New("submission is already scheduled")
 	ErrNotScheduled        = errors.New("submission is not scheduled")
 )
 
@@ -178,13 +177,12 @@ func (s *Service) Schedule(ctx context.Context, submissionID uuid.UUID) error {
 	if err := validateRequest(ctx, submissionID); err != nil {
 		return err
 	}
-	created, err := s.timers.Schedule(ctx, submissionID, s.delay)
+	_, err := s.timers.Schedule(ctx, submissionID, s.delay)
 	if err != nil {
 		return err
 	}
-	if !created {
-		return fmt.Errorf("%w: %s", ErrAlreadyScheduled, submissionID)
-	}
+	// Повторное планирование того же submission идемпотентно: существующий
+	// таймер продолжит отсчёт, а репозиторий уже сохранил свежую версию отчёта.
 	return nil
 }
 

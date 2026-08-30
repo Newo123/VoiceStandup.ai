@@ -1,23 +1,17 @@
-// 4.1. internal/transport/telegram — Обработка Telegram Bot API:
-
-// - Выдача Chat ID при добавлении бота в чат.
-// - Хэндлеры /start, регистрационных ответов, приема голоса и текста в ЛС.
-// - Обработка inline-кнопки «Отменить» или «Отправить» в предпросмотре.
-
-// TODO
-// 1. название кнопок callback.Data
-// 2. Stop() вызываем тут или в main?
-// 3. StateNone StateAwaitingRole соотнести с сервисом
-
 package bot
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
 	domain "VoiceStandup.ai/internal/core/domain"
+	coretelegram "VoiceStandup.ai/internal/core/transport/telegram"
+	"VoiceStandup.ai/internal/standup/parser"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/google/uuid"
 )
 
 type StandupTGBot struct {
@@ -43,25 +37,33 @@ type OnboardingService interface {
 	BotAddedToGroup(ctx context.Context, chatID int64) (*domain.StandupTGBotResponseDTO, error)
 }
 type StandupIngestionService interface {
-	// Голосовой отчет -> транскрибация -> LLM -> Превью
-	ProcessVoiceStandup(ctx context.Context, req *domain.StandupTGBotVoiceRequestDTO) (*domain.StandupTGBotResponseDTO, error)
-
-	// Текстовый отчет -> LLM -> Превью
-	ProcessTextStandup(ctx context.Context, req *domain.StandupTGBotTextRequestDTO) (*domain.StandupTGBotResponseDTO, error)
+	ProcessVoice(ctx context.Context, input parser.VoiceInput) (*domain.StandupPreview, error)
+	ProcessText(ctx context.Context, input parser.TextInput) (*domain.StandupPreview, error)
 }
 type StandupConfirmationService interface {
-	// Обработка inline-кнопки «Отправить» в предпросмотре.
-	SaveReport(ctx context.Context, req *domain.StandupTGBotBaseRequestDTO) (*domain.StandupTGBotResponseDTO, error)
-
-	// Обработка inline-кнопки «Отменить» в предпросмотре.
-	CancelReport(ctx context.Context, req *domain.StandupTGBotBaseRequestDTO) (*domain.StandupTGBotResponseDTO, error)
+	ConfirmNow(ctx context.Context, telegramUserID int64, submissionID uuid.UUID) error
+	Cancel(ctx context.Context, telegramUserID int64, submissionID uuid.UUID) error
 }
 
 func NewStandupTGBot(
 	bot *tgbotapi.BotAPI,
 	onboard OnboardingService,
 	standup StandupIngestionService,
-	confirm StandupConfirmationService) *StandupTGBot {
+	confirm StandupConfirmationService,
+) (*StandupTGBot, error) {
+	if bot == nil {
+		return nil, fmt.Errorf("telegram bot is required")
+	}
+	if onboard == nil {
+		return nil, fmt.Errorf("onboarding service is required")
+	}
+	if standup == nil {
+		return nil, fmt.Errorf("standup ingestion service is required")
+	}
+	if confirm == nil {
+		return nil, fmt.Errorf("standup confirmation service is required")
+	}
+
 	return &StandupTGBot{
 		onboard: onboard,
 		standup: standup,
@@ -69,7 +71,7 @@ func NewStandupTGBot(
 		bot:     bot,
 		done:    make(chan struct{}),
 		logger:  slog.Default().With("component", "standup_tg_bot"),
-	}
+	}, nil
 }
 
 func (s *StandupTGBot) GetUpdates(ctx context.Context) error {
@@ -101,10 +103,12 @@ func (s *StandupTGBot) GetUpdates(ctx context.Context) error {
 				var chatID int64
 				if update.Message != nil {
 					chatID = update.Message.Chat.ID
-				} else if update.CallbackQuery != nil {
+				} else if update.CallbackQuery != nil && update.CallbackQuery.Message != nil {
 					chatID = update.CallbackQuery.Message.Chat.ID
 				}
-				s.answerToTGError(err, chatID)
+				if chatID != 0 {
+					s.answerToTGError(err, chatID)
+				}
 			}
 		}
 	}
@@ -121,15 +125,38 @@ func (s *StandupTGBot) answerToTG(resp *domain.StandupTGBotResponseDTO) {
 }
 
 // в случае если сервис отдает ошибку. Возвращаем типовой ответ
-func (s *StandupTGBot) answerToTGError(err error, chatId int64) {
+func (s *StandupTGBot) answerToTGError(err error, chatID int64) {
+	s.logger.Error("Ошибка обработки запроса", "error", err)
 
-	s.logger.Error("Ошибка обработки запроса", "error", err, "chat_id", chatId)
-
-	text := "Возникла ошибка при обработке вашего сообщения. Попробуйте позднее!"
-	msg := tgbotapi.NewMessage(chatId, text)
+	text := userErrorMessage(err)
+	msg := tgbotapi.NewMessage(chatID, text)
 
 	if _, err := s.bot.Send(msg); err != nil {
-		s.logger.Error("send failed", "error", err, "chat_id", chatId)
+		s.logger.Error("send failed", "error", err, "chat_id", chatID)
+	}
+}
+
+func (s *StandupTGBot) answerPlainText(chatID int64, text string) error {
+	if _, err := s.bot.Send(tgbotapi.NewMessage(chatID, text)); err != nil {
+		return fmt.Errorf("send Telegram message: %w", err)
+	}
+	return nil
+}
+
+func userErrorMessage(err error) string {
+	switch {
+	case errors.Is(err, parser.ErrEmptyText):
+		return "Отправь непустой текст стендапа."
+	case errors.Is(err, parser.ErrVoiceTooLong):
+		return "Голосовое слишком длинное. Максимальная длительность — 2 минуты."
+	case errors.Is(err, coretelegram.ErrVoiceFileTooLarge):
+		return "Голосовой файл слишком большой. Запиши сообщение короче."
+	case errors.Is(err, parser.ErrUserNotFound):
+		return "Сначала зарегистрируйся через команду /start."
+	case errors.Is(err, parser.ErrActiveTeamRequired), errors.Is(err, parser.ErrActiveTeamNotFound):
+		return "Сначала выбери активную команду через её ссылку-приглашение."
+	default:
+		return "Возникла ошибка при обработке сообщения. Попробуй позднее."
 	}
 }
 

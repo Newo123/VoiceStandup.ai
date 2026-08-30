@@ -16,10 +16,12 @@ import (
 	"VoiceStandup.ai/internal/core/repository/postgres"
 	corestt "VoiceStandup.ai/internal/core/stt"
 	coretelegram "VoiceStandup.ai/internal/core/transport/telegram"
+	"VoiceStandup.ai/internal/standup/confirmation"
 	"VoiceStandup.ai/internal/standup/delayed_publish"
 	"VoiceStandup.ai/internal/standup/digest"
 	"VoiceStandup.ai/internal/standup/gamification"
 	"VoiceStandup.ai/internal/standup/onboarding"
+	"VoiceStandup.ai/internal/standup/parser"
 	"VoiceStandup.ai/internal/standup/repository"
 	"VoiceStandup.ai/internal/transport/bot"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -91,13 +93,11 @@ func run() error {
 	if err != nil {
 		log.Fatalf("creating voice processor: %v", err)
 	}
-	_ = voiceProcessor // будет использован при обработке голосовых сообщений
 
 	textProcessor, err := corellm.NewTextProcessor(llmClient)
 	if err != nil {
 		log.Fatalf("creating text processor: %v", err)
 	}
-	_ = textProcessor // будет использован при обработке текстовых сообщений
 
 	slog.Info("llm and stt modules initialized successfully")
 
@@ -141,17 +141,25 @@ func run() error {
 	if err != nil {
 		log.Fatalf("creating delayed publish service: %v", err)
 	}
-	_ = delayedSvc // будет использован при подтверждении/отмене отчёта
+
+	tgClient := coretelegram.NewClient(tgBot)
+	parserSvc, err := parser.NewService(repo, textProcessor, voiceProcessor, tgClient, delayedSvc)
+	if err != nil {
+		log.Fatalf("creating standup parser service: %v", err)
+	}
+	confirmationSvc, err := confirmation.NewService(repo, delayedSvc)
+	if err != nil {
+		log.Fatalf("creating standup confirmation service: %v", err)
+	}
 
 	// Инициализация сервиса дайджеста (проверка каждые 30 секунд)
-	tgClient := coretelegram.NewClient(tgBot)
 	digestSvc := digest.NewDigestService(repo, tgClient, 30*time.Second)
 
 	// Инициализация Telegram-бота
-	// TODO: заменить nil на реальные сервисы, когда они будут готовы:
-	//   - StandupIngestionService (голосовой/текстовый стендап)
-	//   - StandupConfirmationService (подтверждение/отмена отчёта)
-	standupBot := bot.NewStandupTGBot(tgBot, onboardSvc, nil, nil)
+	standupBot, err := bot.NewStandupTGBot(tgBot, onboardSvc, parserSvc, confirmationSvc)
+	if err != nil {
+		log.Fatalf("creating telegram standup bot: %v", err)
+	}
 
 	// Запуск обработки обновлений Telegram
 	go func() {

@@ -11,18 +11,32 @@ const (
 	StateNone               = ""
 	StateOnboarded          = "onboarded"
 	StatePrefixAwaitingRole = "awaiting_role" // Пользователь сейчас должен выбрать/ввести роль. awaiting_role:<uuid>
+
+	SubmissionStatusProcessing           = "processing"
+	SubmissionStatusAwaitingConfirmation = "awaiting_confirmation"
+	SubmissionStatusConfirmed            = "confirmed"
+	SubmissionStatusFailed               = "failed"
+
+	SubmissionFormatText  = "text"
+	SubmissionFormatVoice = "voice"
 )
 
 // StandupResponse — DTO структурированного стендап-отчёта, полученного от LLM.
 type StandupResponse struct {
-	Done       string `json:"done"`
-	InProgress string `json:"in_progress"`
-	Blockers   string `json:"blockers"`
+	Done     string `json:"done"`
+	Plans    string `json:"plans"`
+	Blockers string `json:"blockers"`
 }
 
-// StandupTGBot Request Response DTO
-type StandupTGBotBaseChatIDRequestDTO struct {
-	ChatID int64 // ID чата в Telegram
+// StandupPreview — подготовленный отчёт, который пользователь должен подтвердить.
+type StandupPreview struct {
+	SubmissionID uuid.UUID
+	TeamID       uuid.UUID
+	StandupDate  time.Time
+	Format       string
+	Done         string
+	Plans        string
+	Blockers     string
 }
 
 type StandupTGBotBaseRequestDTO struct {
@@ -41,12 +55,6 @@ type StandupTGBotTeamRequestDTO struct {
 	TeamID int64 // ChatID команды
 }
 
-type StandupTGBotVoiceRequestDTO struct {
-	StandupTGBotBaseRequestDTO
-	VoiceFileID string
-	Duration    int // seconds
-}
-
 type StandupTGBotResponseDTO struct {
 	TargetChatID int64
 	Text         string
@@ -56,6 +64,7 @@ type StandupTGBotResponseDTO struct {
 type Users struct {
 	ID             uuid.UUID
 	State          string
+	ActiveTeamID   *uuid.UUID
 	TelegramUserID int64
 	Username       string
 	DisplayName    string

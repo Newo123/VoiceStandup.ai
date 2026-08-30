@@ -55,6 +55,9 @@ type OnboardingRepo interface {
 	// SaveUserRoleInTeam — сохраняет/обновляет роль пользователя в команде.
 	SaveUserRoleInTeam(ctx context.Context, userID uuid.UUID, teamID uuid.UUID, role string) error
 
+	// SetActiveTeam — выбирает команду, для которой пользователь сдаёт стендап.
+	SetActiveTeam(ctx context.Context, user *domain.Users, teamID uuid.UUID) error
+
 	// GetTeamByUUID — возвращает команду по её UUID.
 	// Если команда не найдена — возвращает (nil, nil).
 	GetTeamByUUID(ctx context.Context, teamID uuid.UUID) (*domain.Teams, error)
@@ -134,6 +137,10 @@ func (s *OnboardingService) StartOnboarding(ctx context.Context, req *domain.Sta
 		// Привязываем пользователя к команде по Telegram ChatID
 		if err := s.repo.SaveUserInTeamByChatID(ctx, user.ID, team.ID); err != nil {
 			s.logger.Error("ошибка сохранения пользователя в команду", "userID", req.UserID, "teamChatID", req.TeamID, "error", err)
+			return nil, err
+		}
+		if err := s.repo.SetActiveTeam(ctx, user, team.ID); err != nil {
+			s.logger.Error("ошибка выбора активной команды", "userID", req.UserID, "teamID", team.ID, "error", err)
 			return nil, err
 		}
 

@@ -14,17 +14,21 @@ import (
 // команды, пользователя и локальной даты.
 func (r *Repository) SaveSubmission(ctx context.Context, submission *domain.Submissions) error {
 	if submission.Status == "" {
-		submission.Status = "processing"
+		submission.Status = domain.SubmissionStatusProcessing
+	}
+	if submission.Format == "" {
+		submission.Format = domain.SubmissionFormatText
 	}
 
 	row := r.db.QueryRow(ctx, `
 		INSERT INTO submissions (
-			team_id, user_id, standup_date, status,
+			team_id, user_id, standup_date, status, format,
 			done_text, plans_text, blockers_text, confirmed_at
 		)
-		VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8)
+		VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (team_id, user_id, standup_date) DO UPDATE
 		SET status = EXCLUDED.status,
+			format = EXCLUDED.format,
 			done_text = EXCLUDED.done_text,
 			plans_text = EXCLUDED.plans_text,
 			blockers_text = EXCLUDED.blockers_text,
@@ -36,6 +40,7 @@ func (r *Repository) SaveSubmission(ctx context.Context, submission *domain.Subm
 			user_id,
 			standup_date,
 			status,
+			format,
 			done_text,
 			plans_text,
 			blockers_text,
@@ -46,6 +51,7 @@ func (r *Repository) SaveSubmission(ctx context.Context, submission *domain.Subm
 		submission.UserID,
 		submission.StandupDate.Format(time.DateOnly),
 		submission.Status,
+		submission.Format,
 		submission.DoneText,
 		submission.PlansText,
 		submission.BlockersText,
@@ -71,6 +77,7 @@ func (r *Repository) GetSubmissionByID(
 			user_id,
 			standup_date,
 			status,
+			format,
 			done_text,
 			plans_text,
 			blockers_text,
@@ -101,6 +108,7 @@ func (r *Repository) GetSubmissionByTeamUserAndDate(
 			user_id,
 			standup_date,
 			status,
+			format,
 			done_text,
 			plans_text,
 			blockers_text,
@@ -136,6 +144,7 @@ func (r *Repository) GetSubmissionsByTeamAndDate(
 			user_id,
 			standup_date,
 			status,
+			format,
 			done_text,
 			plans_text,
 			blockers_text,
@@ -145,9 +154,9 @@ func (r *Repository) GetSubmissionsByTeamAndDate(
 		FROM submissions
 		WHERE team_id = $1
 			AND standup_date = $2::date
-			AND status = 'confirmed'
+			AND status = $3
 			AND confirmed_at IS NOT NULL
-		ORDER BY created_at`, teamID, standupDate.Format(time.DateOnly))
+		ORDER BY created_at`, teamID, standupDate.Format(time.DateOnly), domain.SubmissionStatusConfirmed)
 	if err != nil {
 		return nil, wrapError("get submissions by team and date", err)
 	}
@@ -170,8 +179,12 @@ func (r *Repository) GetSubmissionsByTeamAndDate(
 func (r *Repository) ConfirmSubmission(ctx context.Context, submissionID uuid.UUID) error {
 	commandTag, err := r.db.Exec(ctx, `
 		UPDATE submissions
-		SET status = 'confirmed', confirmed_at = now(), updated_at = now()
-		WHERE id = $1`, submissionID)
+		SET status = $2, confirmed_at = now(), updated_at = now()
+		WHERE id = $1 AND status = $3`,
+		submissionID,
+		domain.SubmissionStatusConfirmed,
+		domain.SubmissionStatusAwaitingConfirmation,
+	)
 	if err != nil {
 		return wrapError("confirm submission", err)
 	}
@@ -179,7 +192,9 @@ func (r *Repository) ConfirmSubmission(ctx context.Context, submissionID uuid.UU
 }
 
 func (r *Repository) DeleteSubmission(ctx context.Context, submissionID uuid.UUID) error {
-	commandTag, err := r.db.Exec(ctx, `DELETE FROM submissions WHERE id = $1`, submissionID)
+	commandTag, err := r.db.Exec(ctx, `
+		DELETE FROM submissions
+		WHERE id = $1 AND status = $2`, submissionID, domain.SubmissionStatusAwaitingConfirmation)
 	if err != nil {
 		return wrapError("delete submission", err)
 	}
@@ -194,6 +209,7 @@ func scanSubmission(row rowScanner) (*domain.Submissions, error) {
 		&submission.UserID,
 		&submission.StandupDate,
 		&submission.Status,
+		&submission.Format,
 		&submission.DoneText,
 		&submission.PlansText,
 		&submission.BlockersText,
