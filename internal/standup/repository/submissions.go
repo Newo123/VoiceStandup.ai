@@ -191,6 +191,46 @@ func (r *Repository) ConfirmSubmission(ctx context.Context, submissionID uuid.UU
 	return ensureAffected("confirm submission", commandTag.RowsAffected())
 }
 
+func (r *Repository) GetSubmissionsByUserID(
+	ctx context.Context,
+	userID uuid.UUID,
+) ([]domain.Submissions, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT
+			id,
+			team_id,
+			user_id,
+			standup_date,
+			status,
+			format,
+			done_text,
+			plans_text,
+			blockers_text,
+			confirmed_at,
+			created_at,
+			updated_at
+		FROM submissions
+		WHERE user_id = $1
+		ORDER BY standup_date DESC, created_at DESC`, userID)
+	if err != nil {
+		return nil, wrapError("get submissions by user", err)
+	}
+	defer rows.Close()
+
+	submissions := make([]domain.Submissions, 0)
+	for rows.Next() {
+		submission, scanErr := scanSubmission(rows)
+		if scanErr != nil {
+			return nil, wrapError("scan submission", scanErr)
+		}
+		submissions = append(submissions, *submission)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapError("iterate submissions", err)
+	}
+	return submissions, nil
+}
+
 func (r *Repository) DeleteSubmission(ctx context.Context, submissionID uuid.UUID) error {
 	commandTag, err := r.db.Exec(ctx, `
 		DELETE FROM submissions

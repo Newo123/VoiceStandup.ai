@@ -163,8 +163,26 @@ func (s *fakeMiniAppService) CreateTeam(
 func (s *fakeMiniAppService) SelectActiveTeam(context.Context, int64, uuid.UUID) (*domain.TeamMembership, error) {
 	return s.selected, nil
 }
+func (s *fakeMiniAppService) ListUsers(context.Context) ([]domain.Users, error) {
+	return nil, nil
+}
+func (s *fakeMiniAppService) GetUserByID(context.Context, uuid.UUID) (*domain.Users, error) {
+	return nil, nil
+}
+func (s *fakeMiniAppService) GetTeam(context.Context, int64, uuid.UUID) (*domain.TeamMembership, error) {
+	return nil, nil
+}
+func (s *fakeMiniAppService) UpdateTeam(context.Context, int64, uuid.UUID, miniapp.UpdateTeamInput) (*domain.TeamMembership, error) {
+	return nil, nil
+}
 func (s *fakeMiniAppService) GetTeamMembers(context.Context, int64, uuid.UUID) ([]domain.TeamMemberStats, error) {
 	return s.members, s.membersErr
+}
+func (s *fakeMiniAppService) ListReports(context.Context, int64) ([]domain.Submissions, error) {
+	return nil, nil
+}
+func (s *fakeMiniAppService) GetReport(context.Context, int64, uuid.UUID) (*domain.Submissions, error) {
+	return nil, nil
 }
 
 var _ MiniAppService = (*fakeMiniAppService)(nil)

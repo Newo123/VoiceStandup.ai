@@ -25,7 +25,7 @@ func TestRouteIgnoresStandupMessagesFromGroup(t *testing.T) {
 func TestFormatStandupPreviewEscapesUserContent(t *testing.T) {
 	message := formatStandupPreview(&domain.StandupPreview{
 		Done:     "Исправил <handler>",
-		Plans:    "",
+		Plans:    "Буду править <handler>",
 		Blockers: "API & токен",
 	})
 	if !strings.Contains(message, "Исправил &lt;handler&gt;") || !strings.Contains(message, "API &amp; токен") {
