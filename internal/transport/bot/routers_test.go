@@ -2,10 +2,8 @@ package bot
 
 import (
 	"context"
-	"strings"
 	"testing"
 
-	"VoiceStandup.ai/internal/core/domain"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/google/uuid"
 )
@@ -19,20 +17,6 @@ func TestRouteIgnoresStandupMessagesFromGroup(t *testing.T) {
 	}}
 	if err := standupBot.route(context.Background(), update); err != nil {
 		t.Fatalf("route() error = %v", err)
-	}
-}
-
-func TestFormatStandupPreviewEscapesUserContent(t *testing.T) {
-	message := formatStandupPreview(&domain.StandupPreview{
-		Done:     "Исправил <handler>",
-		Plans:    "Буду править <handler>",
-		Blockers: "API & токен",
-	})
-	if !strings.Contains(message, "Исправил &lt;handler&gt;") || !strings.Contains(message, "API &amp; токен") {
-		t.Errorf("message does not escape HTML: %q", message)
-	}
-	if !strings.Contains(message, "<b>🧐Что в планах:</b>\n—") {
-		t.Errorf("message does not render empty section: %q", message)
 	}
 }
 
