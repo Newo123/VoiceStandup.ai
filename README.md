@@ -1,6 +1,7 @@
 # VoiceStandup.ai
 
 [![Go checks](https://github.com/Newo123/VoiceStandup.ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Newo123/VoiceStandup.ai/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Newo123/VoiceStandup.ai/branch/main/graph/badge.svg)](https://codecov.io/gh/Newo123/VoiceStandup.ai)
 
 Telegram-бот для асинхронных стендапов. Участник отправляет голосовое сообщение или текст, сервис превращает его в структурированный статус, показывает предпросмотр и по расписанию собирает командную сводку.
 
