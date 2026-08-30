@@ -128,8 +128,8 @@ func (w *DigestService) processTeam(ctx context.Context, team domain.Teams) erro
 		}
 	}
 	if !isWorkday {
-		w.logger.Debug("Сегодня не рабочий день, пропускаем",
-			"team_id", team.ID, "weekday", goWeekday)
+		// w.logger.Debug("Сегодня не рабочий день, пропускаем",
+		// 	"team_id", team.ID, "weekday", goWeekday)
 		return nil
 	}
 
@@ -138,8 +138,8 @@ func (w *DigestService) processTeam(ctx context.Context, team domain.Teams) erro
 	if !lastPub.IsZero() {
 		lastPubDate := lastPub.In(loc).Truncate(24 * time.Hour)
 		if lastPubDate.Equal(today) {
-			w.logger.Debug("Дайджест уже опубликован сегодня",
-				"team_id", team.ID)
+			// w.logger.Debug("Дайджест уже опубликован сегодня",
+			// 	"team_id", team.ID)
 			return nil
 		}
 	}
@@ -153,10 +153,10 @@ func (w *DigestService) processTeam(ctx context.Context, team domain.Teams) erro
 	)
 
 	if now.Before(publishDateTime) {
-		w.logger.Debug("Время публикации ещё не наступило",
-			"team_id", team.ID,
-			"publish_at", publishDateTime.Format("15:04"),
-			"now", now.Format("15:04"))
+		// w.logger.Debug("Время публикации ещё не наступило",
+		// 	"team_id", team.ID,
+		// 	"publish_at", publishDateTime.Format("15:04"),
+		// 	"now", now.Format("15:04"))
 		return nil
 	}
 

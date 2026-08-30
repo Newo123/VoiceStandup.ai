@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"VoiceStandup.ai/internal/core/domain"
 	"github.com/google/uuid"
 )
 
@@ -52,7 +53,7 @@ func TestServiceConfirmNowRemovesTimerAndPublishes(t *testing.T) {
 	if err := service.Schedule(context.Background(), id); err != nil {
 		t.Fatalf("Schedule() error = %v", err)
 	}
-	if err := service.ConfirmNow(context.Background(), id); err != nil {
+	if _, err := service.ConfirmNow(context.Background(), id); err != nil {
 		t.Fatalf("ConfirmNow() error = %v", err)
 	}
 	if !publisher.wasPublished(id) {
@@ -96,12 +97,15 @@ func TestPublisherConfirmsBeforeGamification(t *testing.T) {
 	var order []string
 	publisher, err := NewPublisher(
 		repositoryFunc(func(context.Context, uuid.UUID) error { order = append(order, "confirm"); return nil }),
-		gamificationFunc(func(context.Context, uuid.UUID) error { order = append(order, "gamification"); return nil }),
+		gamificationFunc(func(context.Context, uuid.UUID) (*domain.UserStats, error) {
+			order = append(order, "gamification")
+			return &domain.UserStats{}, nil
+		}),
 	)
 	if err != nil {
 		t.Fatalf("NewPublisher() error = %v", err)
 	}
-	if err := publisher.Publish(context.Background(), uuid.New()); err != nil {
+	if _, err := publisher.Publish(context.Background(), uuid.New()); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 	if len(order) != 2 || order[0] != "confirm" || order[1] != "gamification" {
@@ -168,11 +172,11 @@ type recordingPublisher struct {
 }
 
 func newRecordingPublisher() *recordingPublisher { return &recordingPublisher{} }
-func (p *recordingPublisher) Publish(_ context.Context, id uuid.UUID) error {
+func (p *recordingPublisher) Publish(_ context.Context, id uuid.UUID) (*domain.UserStats, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.published = append(p.published, id)
-	return nil
+	return &domain.UserStats{}, nil
 }
 func (p *recordingPublisher) wasPublished(id uuid.UUID) bool {
 	p.mu.Lock()
@@ -219,8 +223,8 @@ func (fn repositoryFunc) ConfirmSubmission(ctx context.Context, id uuid.UUID) er
 	return fn(ctx, id)
 }
 
-type gamificationFunc func(context.Context, uuid.UUID) error
+type gamificationFunc func(context.Context, uuid.UUID) (*domain.UserStats, error)
 
-func (fn gamificationFunc) ApplyConfirmedSubmission(ctx context.Context, id uuid.UUID) error {
+func (fn gamificationFunc) ApplyConfirmedSubmission(ctx context.Context, id uuid.UUID) (*domain.UserStats, error) {
 	return fn(ctx, id)
 }

@@ -19,7 +19,7 @@ func TestServiceConfirmNowForOwner(t *testing.T) {
 	lifecycle := &fakeLifecycle{}
 	service := newTestService(t, repository, lifecycle)
 
-	if err := service.ConfirmNow(context.Background(), 1001, submissionID); err != nil {
+	if _, err := service.ConfirmNow(context.Background(), 1001, submissionID); err != nil {
 		t.Fatalf("ConfirmNow() error = %v", err)
 	}
 	if lifecycle.confirmed != submissionID {
@@ -56,7 +56,7 @@ func TestServiceRejectsMissingUserAndSubmission(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			service := newTestService(t, test.repository, &fakeLifecycle{})
-			err := service.ConfirmNow(context.Background(), 1001, uuid.New())
+			_, err := service.ConfirmNow(context.Background(), 1001, uuid.New())
 			if !errors.Is(err, test.want) {
 				t.Fatalf("ConfirmNow() error = %v, want %v", err, test.want)
 			}
@@ -90,9 +90,9 @@ type fakeLifecycle struct {
 	cancelled uuid.UUID
 }
 
-func (l *fakeLifecycle) ConfirmNow(_ context.Context, submissionID uuid.UUID) error {
+func (l *fakeLifecycle) ConfirmNow(_ context.Context, submissionID uuid.UUID) (*domain.UserStats, error) {
 	l.confirmed = submissionID
-	return nil
+	return &domain.UserStats{}, nil
 }
 func (l *fakeLifecycle) Cancel(_ context.Context, submissionID uuid.UUID) error {
 	l.cancelled = submissionID

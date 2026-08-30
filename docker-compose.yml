@@ -19,11 +19,7 @@ services:
       - voice-standup-network
 
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"
-        ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -56,11 +52,7 @@ services:
       - voice-standup-network
 
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping | grep PONG"
-        ]
+      test: [ "CMD-SHELL", "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping | grep PONG" ]
       interval: 5s
       timeout: 3s
       retries: 10

@@ -23,7 +23,13 @@ type MiniAppService interface {
 	ListTeams(ctx context.Context, telegramUserID int64) ([]domain.TeamMembership, error)
 	CreateTeam(ctx context.Context, telegramUserID int64, input miniapp.CreateTeamInput) (*domain.TeamMembership, error)
 	SelectActiveTeam(ctx context.Context, telegramUserID int64, teamID uuid.UUID) (*domain.TeamMembership, error)
+	GetTeam(ctx context.Context, telegramUserID int64, teamID uuid.UUID) (*domain.TeamMembership, error)
+	UpdateTeam(ctx context.Context, telegramUserID int64, teamID uuid.UUID, input miniapp.UpdateTeamInput) (*domain.TeamMembership, error)
 	GetTeamMembers(ctx context.Context, telegramUserID int64, teamID uuid.UUID) ([]domain.TeamMemberStats, error)
+	ListReports(ctx context.Context, telegramUserID int64) ([]domain.Submissions, error)
+	GetReport(ctx context.Context, telegramUserID int64, submissionID uuid.UUID) (*domain.Submissions, error)
+	ListUsers(ctx context.Context) ([]domain.Users, error)
+	GetUserByID(ctx context.Context, userID uuid.UUID) (*domain.Users, error)
 }
 
 type API struct {
@@ -41,11 +47,20 @@ func NewHandler(validator *InitDataValidator, service MiniAppService) (http.Hand
 
 	api := &API{service: service, logger: slog.Default().With("component", "mini_app_http")}
 	protected := http.NewServeMux()
+	// Users
 	protected.HandleFunc("GET /api/v1/me", api.getProfile)
+	protected.HandleFunc("GET /api/v1/users", api.listUsers)
+	protected.HandleFunc("GET /api/v1/users/{userID}", api.getUser)
 	protected.HandleFunc("GET /api/v1/teams", api.listTeams)
+	// Teams
 	protected.HandleFunc("POST /api/v1/teams", api.createTeam)
-	protected.HandleFunc("PUT /api/v1/me/active-team", api.selectActiveTeam)
+	//protected.HandleFunc("PUT /api/v1/me/active-team", api.selectActiveTeam)
+	protected.HandleFunc("GET /api/v1/teams/{teamID}", api.getTeam)
+	protected.HandleFunc("PATCH /api/v1/teams/{teamID}", api.updateTeam)
 	protected.HandleFunc("GET /api/v1/teams/{teamID}/members", api.getTeamMembers)
+	// Reports
+	protected.HandleFunc("GET /api/v1/reports", api.listReports)
+	protected.HandleFunc("GET /api/v1/reports/{reportID}", api.getReport)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(response http.ResponseWriter, _ *http.Request) {
@@ -127,6 +142,123 @@ func (a *API) selectActiveTeam(response http.ResponseWriter, request *http.Reque
 		return
 	}
 	writeJSON(response, http.StatusOK, teamResponseFromDomain(*membership))
+}
+
+func (a *API) listUsers(response http.ResponseWriter, request *http.Request) {
+	users, err := a.service.ListUsers(request.Context())
+	if err != nil {
+		a.writeServiceError(response, err)
+		return
+	}
+
+	result := make([]userResponse, 0, len(users))
+	for _, user := range users {
+		result = append(result, userResponseFromDomain(user))
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"users": result})
+}
+
+func (a *API) getUser(response http.ResponseWriter, request *http.Request) {
+	userID, err := uuid.Parse(request.PathValue("userID"))
+	if err != nil {
+		writeError(response, http.StatusBadRequest, "invalid_user_id", "Некорректный user ID")
+		return
+	}
+
+	user, err := a.service.GetUserByID(request.Context(), userID)
+	if err != nil {
+		a.writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, userResponseFromDomain(*user))
+}
+
+func (a *API) getTeam(response http.ResponseWriter, request *http.Request) {
+	teamID, err := uuid.Parse(request.PathValue("teamID"))
+	if err != nil {
+		writeError(response, http.StatusBadRequest, "invalid_team_id", "Некорректный team ID")
+		return
+	}
+
+	telegramUser := mustTelegramUser(request)
+	membership, err := a.service.GetTeam(request.Context(), telegramUser.ID, teamID)
+	if err != nil {
+		a.writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, teamResponseFromDomain(*membership))
+}
+
+func (a *API) updateTeam(response http.ResponseWriter, request *http.Request) {
+	teamID, err := uuid.Parse(request.PathValue("teamID"))
+	if err != nil {
+		writeError(response, http.StatusBadRequest, "invalid_team_id", "Некорректный team ID")
+		return
+	}
+
+	var input updateTeamRequest
+	if err := decodeJSON(response, request, &input); err != nil {
+		writeError(response, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	updateInput := miniapp.UpdateTeamInput{
+		Name:       input.Name,
+		Timezone:   input.Timezone,
+		Workdays:   input.Workdays,
+		LatePolicy: input.LatePolicy,
+	}
+	if input.PublishLocalTime != nil {
+		publishTime, err := time.Parse("15:04", *input.PublishLocalTime)
+		if err != nil {
+			writeError(response, http.StatusUnprocessableEntity, "invalid_team", "publish_local_time должен быть в формате HH:MM")
+			return
+		}
+		updateInput.PublishLocalTime = &publishTime
+	}
+
+	telegramUser := mustTelegramUser(request)
+	membership, err := a.service.UpdateTeam(request.Context(), telegramUser.ID, teamID, updateInput)
+	if err != nil {
+		a.writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, teamResponseFromDomain(*membership))
+}
+
+func (a *API) listReports(response http.ResponseWriter, request *http.Request) {
+	telegramUser := mustTelegramUser(request)
+	reports, err := a.service.ListReports(request.Context(), telegramUser.ID)
+	if err != nil {
+		a.writeServiceError(response, err)
+		return
+	}
+
+	result := make([]reportResponse, 0, len(reports))
+	for _, report := range reports {
+		result = append(result, reportResponseFromDomain(report))
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"reports": result})
+}
+
+func (a *API) getReport(response http.ResponseWriter, request *http.Request) {
+	reportID, err := uuid.Parse(request.PathValue("reportID"))
+	if err != nil {
+		writeError(response, http.StatusBadRequest, "invalid_report_id", "Некорректный report ID")
+		return
+	}
+
+	telegramUser := mustTelegramUser(request)
+	report, err := a.service.GetReport(request.Context(), telegramUser.ID, reportID)
+	if err != nil {
+		a.writeServiceError(response, err)
+		return
+	}
+	if report == nil {
+		writeError(response, http.StatusNotFound, "report_not_found", "Отчёт не найден")
+		return
+	}
+	writeJSON(response, http.StatusOK, reportResponseFromDomain(*report))
 }
 
 func (a *API) getTeamMembers(response http.ResponseWriter, request *http.Request) {

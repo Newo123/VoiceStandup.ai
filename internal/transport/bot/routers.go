@@ -126,10 +126,15 @@ func (s *StandupTGBot) handleInlineClicked(ctx context.Context, callback *tgbota
 	var responseText string
 	switch action {
 	case confirmCallbackAction:
-		if err := s.confirm.ConfirmNow(ctx, callback.From.ID, submissionID); err != nil {
+		stats, err := s.confirm.ConfirmNow(ctx, callback.From.ID, submissionID)
+		if err != nil {
 			return err
 		}
-		responseText = "✅ Стендап подтверждён."
+		responseText = fmt.Sprintf(
+			"✅ Стендап подтверждён!\n\n<b>🎯 Очки:</b> %d XP\n<b>⭐ Уровень:</b> %d\n<b>🔥 Стрик:</b> %d %s",
+			stats.XP, stats.Level, stats.CurrentStreak,
+			streakEmoji(stats.CurrentStreak),
+		)
 	case cancelCallbackAction:
 		if err := s.confirm.Cancel(ctx, callback.From.ID, submissionID); err != nil {
 			return err
@@ -140,12 +145,16 @@ func (s *StandupTGBot) handleInlineClicked(ctx context.Context, callback *tgbota
 	markup := tgbotapi.NewEditMessageReplyMarkup(
 		callback.Message.Chat.ID,
 		callback.Message.MessageID,
-		tgbotapi.InlineKeyboardMarkup{},
+		tgbotapi.InlineKeyboardMarkup{InlineKeyboard: make([][]tgbotapi.InlineKeyboardButton, 0)},
 	)
 	if _, err := s.bot.Request(markup); err != nil {
 		s.logger.Warn("Не удалось убрать inline-кнопки", "error", err)
 	}
-	return s.answerPlainText(callback.Message.Chat.ID, responseText)
+	s.answerToTG(&domain.StandupTGBotResponseDTO{
+		TargetChatID: callback.Message.Chat.ID,
+		Text:         responseText,
+	})
+	return nil
 }
 
 func (s *StandupTGBot) answerPreviewToTG(chatID int64, preview *domain.StandupPreview) error {
@@ -168,9 +177,9 @@ func (s *StandupTGBot) answerPreviewToTG(chatID int64, preview *domain.StandupPr
 func formatStandupPreview(preview *domain.StandupPreview) string {
 	return fmt.Sprintf(
 		"<b>Предпросмотр стендапа</b>\n\n"+
-			"<b>Что сделано:</b>\n%s\n\n"+
-			"<b>Что в планах:</b>\n%s\n\n"+
-			"<b>Блокеры:</b>\n%s",
+			"<b>😎Что сделано:</b>\n%s\n\n"+
+			"<b>🧐Что в планах:</b>\n%s\n\n"+
+			"<b>💥Блокеры:</b>\n%s",
 		previewValue(preview.Done),
 		previewValue(preview.Plans),
 		previewValue(preview.Blockers),
@@ -183,6 +192,19 @@ func previewValue(value string) string {
 		return "—"
 	}
 	return html.EscapeString(value)
+}
+
+func streakEmoji(streak int) string {
+	switch {
+	case streak >= 10:
+		return "🔥🔥🔥"
+	case streak >= 5:
+		return "🔥🔥"
+	case streak >= 3:
+		return "🔥"
+	default:
+		return "🌱"
+	}
 }
 
 func callbackData(action string, submissionID uuid.UUID) string {

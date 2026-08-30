@@ -14,7 +14,6 @@ func TestLoadInfrastructureConfig(t *testing.T) {
 	t.Setenv("REDIS_DB", "2")
 	t.Setenv("REDIS_CONNECT_TIMEOUT", "4s")
 	t.Setenv("LLM_API_KEY", "sk-test-llm-key")
-	t.Setenv("STT_API_KEY", "sk-test-stt-key")
 	t.Setenv("BOT_TOKEN", "test-bot-token")
 	t.Setenv("HTTP_ADDR", "127.0.0.1:9090")
 	t.Setenv("HTTP_SHUTDOWN_TIMEOUT", "7s")
@@ -56,7 +55,6 @@ func TestLoadUsesDefaults(t *testing.T) {
 	t.Setenv("REDIS_DB", "")
 	t.Setenv("REDIS_CONNECT_TIMEOUT", "")
 	t.Setenv("LLM_API_KEY", "sk-test-llm-key")
-	t.Setenv("STT_API_KEY", "sk-test-stt-key")
 	t.Setenv("BOT_TOKEN", "test-bot-token")
 	t.Setenv("HTTP_ADDR", "")
 	t.Setenv("HTTP_SHUTDOWN_TIMEOUT", "")
@@ -87,7 +85,6 @@ func TestLoadUsesDefaults(t *testing.T) {
 func TestLoadRejectsMissingDatabaseURL(t *testing.T) {
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv("LLM_API_KEY", "sk-test-llm-key")
-	t.Setenv("STT_API_KEY", "sk-test-stt-key")
 
 	_, err := Load()
 	if err == nil || !strings.Contains(err.Error(), "DATABASE_URL") {
@@ -99,7 +96,6 @@ func TestLoadRejectsInvalidRedisDB(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgresql://user:password@localhost:5432/app")
 	t.Setenv("REDIS_DB", "invalid")
 	t.Setenv("LLM_API_KEY", "sk-test-llm-key")
-	t.Setenv("STT_API_KEY", "sk-test-stt-key")
 
 	_, err := Load()
 	if err == nil || !strings.Contains(err.Error(), "REDIS_DB") {
@@ -114,29 +110,11 @@ func TestLoadRejectsMissingLLMAPIKey(t *testing.T) {
 	t.Setenv("REDIS_PASSWORD", "secret")
 	t.Setenv("REDIS_DB", "0")
 	t.Setenv("REDIS_CONNECT_TIMEOUT", "5s")
-	t.Setenv("STT_API_KEY", "sk-test-stt-key")
 	t.Setenv("BOT_TOKEN", "test-bot-token")
 	// LLM_API_KEY intentionally left unset
 
 	_, err := Load()
 	if err == nil || !strings.Contains(err.Error(), "LLM_API_KEY") {
-		t.Fatalf("Load() error = %v", err)
-	}
-}
-
-func TestLoadRejectsMissingSTTAPIKey(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgresql://user:password@localhost:5432/app")
-	t.Setenv("POSTGRES_CONNECT_TIMEOUT", "5s")
-	t.Setenv("REDIS_ADDR", "localhost:6379")
-	t.Setenv("REDIS_PASSWORD", "secret")
-	t.Setenv("REDIS_DB", "0")
-	t.Setenv("REDIS_CONNECT_TIMEOUT", "5s")
-	t.Setenv("LLM_API_KEY", "sk-test-llm-key")
-	t.Setenv("BOT_TOKEN", "test-bot-token")
-	// STT_API_KEY intentionally left unset
-
-	_, err := Load()
-	if err == nil || !strings.Contains(err.Error(), "STT_API_KEY") {
 		t.Fatalf("Load() error = %v", err)
 	}
 }

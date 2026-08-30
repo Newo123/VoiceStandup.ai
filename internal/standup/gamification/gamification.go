@@ -91,30 +91,31 @@ func NewGamificationService(repo GamificationRepo, clock Clock) *GamificationSer
 
 // ApplyConfirmedSubmission реализует контракт delayed_publish.Gamification.
 // Загружает подтверждённую сдачу, рассчитывает XP, стрики и уровень, сохраняет результат.
-func (g *GamificationService) ApplyConfirmedSubmission(ctx context.Context, submissionID uuid.UUID) error {
+// Возвращает обновлённую статистику пользователя.
+func (g *GamificationService) ApplyConfirmedSubmission(ctx context.Context, submissionID uuid.UUID) (*domain.UserStats, error) {
 	// ---- Загрузка данных ----
 	submission, err := g.repo.GetSubmissionByID(ctx, submissionID)
 	if err != nil {
-		return fmt.Errorf("ошибка загрузки сдачи %s: %w", submissionID, err)
+		return nil, fmt.Errorf("ошибка загрузки сдачи %s: %w", submissionID, err)
 	}
 	if submission == nil {
-		return fmt.Errorf("сдача %s не найдена", submissionID)
+		return nil, fmt.Errorf("сдача %s не найдена", submissionID)
 	}
 
 	team, err := g.repo.GetTeamByUUID(ctx, submission.TeamID)
 	if err != nil {
-		return fmt.Errorf("ошибка загрузки команды %s: %w", submission.TeamID, err)
+		return nil, fmt.Errorf("ошибка загрузки команды %s: %w", submission.TeamID, err)
 	}
 	if team == nil {
-		return fmt.Errorf("команда %s не найдена", submission.TeamID)
+		return nil, fmt.Errorf("команда %s не найдена", submission.TeamID)
 	}
 
 	stats, err := g.repo.GetUserStats(ctx, submission.UserID)
 	if err != nil {
-		return fmt.Errorf("ошибка загрузки статистики пользователя %s: %w", submission.UserID, err)
+		return nil, fmt.Errorf("ошибка загрузки статистики пользователя %s: %w", submission.UserID, err)
 	}
 	if stats == nil {
-		return fmt.Errorf("статистика пользователя %s не найдена", submission.UserID)
+		return nil, fmt.Errorf("статистика пользователя %s не найдена", submission.UserID)
 	}
 
 	// ---- Шаг 1: Базовый XP (время + формат) ----
@@ -162,7 +163,7 @@ func (g *GamificationService) ApplyConfirmedSubmission(ctx context.Context, subm
 	}
 
 	if err := g.repo.SaveUserStats(ctx, updatedStats); err != nil {
-		return fmt.Errorf("ошибка обновления статистики пользователя %s: %w", submission.UserID, err)
+		return nil, fmt.Errorf("ошибка обновления статистики пользователя %s: %w", submission.UserID, err)
 	}
 
 	g.logger.Debug("геймификация применена",
@@ -176,7 +177,7 @@ func (g *GamificationService) ApplyConfirmedSubmission(ctx context.Context, subm
 		"streak", streak,
 	)
 
-	return nil
+	return updatedStats, nil
 }
 
 // ---------- Шаг 1: XP за время сдачи ----------

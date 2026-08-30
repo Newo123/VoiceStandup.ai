@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -99,5 +101,25 @@ func (c *Client) Complete(ctx context.Context, systemPrompt, userContent string)
 		return "", fmt.Errorf("llm: пустой список choices в ответе")
 	}
 
-	return chatResp.Choices[0].Message.Content, nil
+	content := chatResp.Choices[0].Message.Content
+	slog.Debug("llm raw response", "model", c.model, "content", content)
+	return content, nil
+}
+
+// stripMarkdownCodeBlock удаляет markdown-обёртку ```json ... ```, если она есть.
+func stripMarkdownCodeBlock(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "```") {
+		// Убираем первую строку с ```json или просто ```
+		if idx := strings.Index(s, "\n"); idx != -1 {
+			s = s[idx+1:]
+		} else {
+			return ""
+		}
+		// Убираем завершающие ```
+		if idx := strings.LastIndex(s, "```"); idx != -1 {
+			s = s[:idx]
+		}
+	}
+	return strings.TrimSpace(s)
 }

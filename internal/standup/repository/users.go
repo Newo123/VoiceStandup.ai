@@ -146,6 +146,39 @@ func (r *Repository) SetActiveTeam(ctx context.Context, user *domain.Users, team
 	return nil
 }
 
+func (r *Repository) GetAllUsers(ctx context.Context) ([]domain.Users, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT
+			id,
+			state,
+			active_team_id,
+			telegram_user_id,
+			COALESCE(username, ''),
+			COALESCE(display_name, ''),
+			created_at,
+			deleted_at
+		FROM users
+		WHERE deleted_at IS NULL
+		ORDER BY created_at`)
+	if err != nil {
+		return nil, wrapError("get all users", err)
+	}
+	defer rows.Close()
+
+	users := make([]domain.Users, 0)
+	for rows.Next() {
+		user, scanErr := scanUser(rows)
+		if scanErr != nil {
+			return nil, wrapError("scan user", scanErr)
+		}
+		users = append(users, *user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapError("iterate users", err)
+	}
+	return users, nil
+}
+
 func (r *Repository) SoftDeleteUser(ctx context.Context, userID uuid.UUID) error {
 	commandTag, err := r.db.Exec(ctx, `
 		UPDATE users

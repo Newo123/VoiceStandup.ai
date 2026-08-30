@@ -41,10 +41,7 @@ func (w *DigestService) buildDigestMessage(
 
 		for _, sub := range submissions {
 			member, ok := memberByUserID[sub.UserID]
-			name := "Участник"
-			if ok && member.FullName != "" {
-				name = member.FullName
-			}
+			name := memberDisplayName(member, ok)
 
 			sb.WriteString(fmt.Sprintf("<b>👤 %s</b>\n", escapeHTML(name)))
 
@@ -75,10 +72,8 @@ func (w *DigestService) buildDigestMessage(
 		sb.WriteString("━━━━━━━━━━━━━━━━\n")
 		sb.WriteString("<b>🔇 Нет отчёта:</b>\n")
 		for _, m := range silentMembers {
-			name := m.FullName
-			if name == "" {
-				name = "Участник"
-			}
+			name := memberDisplayName(m, true)
+
 			sb.WriteString(fmt.Sprintf("  • %s\n", escapeHTML(name)))
 		}
 		sb.WriteString("\n")
@@ -89,6 +84,18 @@ func (w *DigestService) buildDigestMessage(
 	sb.WriteString("<i>Стендап-бот 🤖</i>")
 
 	return sb.String()
+}
+
+// memberDisplayName возвращает "FullName (Role)", если есть и имя, и роль.
+// Если роль пустая — только имя; если имя пустое — "Участник".
+func memberDisplayName(member domain.TeamMembers, ok bool) string {
+	if !ok || member.FullName == "" {
+		return "Участник"
+	}
+	if member.Role != "" {
+		return fmt.Sprintf("%s (%s)", member.FullName, member.Role)
+	}
+	return member.FullName
 }
 
 // escapeHTML экранирует спецсимволы для HTML-режима Telegram.

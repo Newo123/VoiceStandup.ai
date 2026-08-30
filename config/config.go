@@ -119,7 +119,8 @@ func Load() (Config, error) {
 			Timeout: llmTimeout,
 		},
 		STT: STT{
-			APIKey:  os.Getenv("STT_API_KEY"),
+			// STT использует тот же API-ключ, что и LLM (OpenRouter)
+			APIKey:  os.Getenv("LLM_API_KEY"),
 			Model:   envString("STT_MODEL", "openai/whisper-large-v3-turbo"),
 			Timeout: sttTimeout,
 		},
@@ -163,7 +164,7 @@ func (c Config) Validate() error {
 		return errors.New("LLM_API_KEY is required")
 	}
 	if c.STT.APIKey == "" {
-		return errors.New("STT_API_KEY is required")
+		return errors.New("LLM_API_KEY is required")
 	}
 	if c.Telegram.BotToken == "" {
 		return errors.New("BOT_TOKEN is required")

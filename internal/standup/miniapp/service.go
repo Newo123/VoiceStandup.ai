@@ -30,6 +30,11 @@ type Repository interface {
 	GetTeamMemberStats(ctx context.Context, teamID uuid.UUID) ([]domain.TeamMemberStats, error)
 	CreateTeamForOwner(ctx context.Context, owner *domain.Users, team *domain.Teams) error
 	SetActiveTeam(ctx context.Context, user *domain.Users, teamID uuid.UUID) error
+	UpdateTeam(ctx context.Context, team *domain.Teams) error
+	GetSubmissionsByUserID(ctx context.Context, userID uuid.UUID) ([]domain.Submissions, error)
+	GetSubmissionByID(ctx context.Context, submissionID uuid.UUID) (*domain.Submissions, error)
+	GetAllUsers(ctx context.Context) ([]domain.Users, error)
+	GetUserByID(ctx context.Context, userID uuid.UUID) (*domain.Users, error)
 }
 
 type Profile struct {
@@ -45,6 +50,14 @@ type CreateTeamInput struct {
 	PublishLocalTime time.Time
 	Workdays         []int
 	LatePolicy       string
+}
+
+type UpdateTeamInput struct {
+	Name             *string
+	Timezone         *string
+	PublishLocalTime *time.Time
+	Workdays         *[]int
+	LatePolicy       *string
 }
 
 type Service struct {
@@ -138,6 +151,130 @@ func (s *Service) SelectActiveTeam(
 	}
 	if err := s.repository.SetActiveTeam(ctx, user, teamID); err != nil {
 		return nil, fmt.Errorf("mini app: select active team: %w", err)
+	}
+	return membership, nil
+}
+
+func (s *Service) ListUsers(ctx context.Context) ([]domain.Users, error) {
+	users, err := s.repository.GetAllUsers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("mini app: list users: %w", err)
+	}
+	return users, nil
+}
+
+func (s *Service) GetUserByID(ctx context.Context, userID uuid.UUID) (*domain.Users, error) {
+	user, err := s.repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("mini app: get user by id: %w", err)
+	}
+	if user == nil || user.DeletedAt != nil {
+		return nil, ErrUserNotFound
+	}
+	return user, nil
+}
+
+func (s *Service) ListReports(ctx context.Context, telegramUserID int64) ([]domain.Submissions, error) {
+	user, err := s.getUser(ctx, telegramUserID)
+	if err != nil {
+		return nil, err
+	}
+	submissions, err := s.repository.GetSubmissionsByUserID(ctx, user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("mini app: list reports: %w", err)
+	}
+	return submissions, nil
+}
+
+func (s *Service) GetReport(ctx context.Context, telegramUserID int64, submissionID uuid.UUID) (*domain.Submissions, error) {
+	user, err := s.getUser(ctx, telegramUserID)
+	if err != nil {
+		return nil, err
+	}
+	submission, err := s.repository.GetSubmissionByID(ctx, submissionID)
+	if err != nil {
+		return nil, fmt.Errorf("mini app: get report: %w", err)
+	}
+	if submission == nil {
+		return nil, nil
+	}
+	if submission.UserID != user.ID {
+		return nil, ErrForbidden
+	}
+	return submission, nil
+}
+
+func (s *Service) GetTeam(ctx context.Context, telegramUserID int64, teamID uuid.UUID) (*domain.TeamMembership, error) {
+	user, err := s.getUser(ctx, telegramUserID)
+	if err != nil {
+		return nil, err
+	}
+	membership, err := s.repository.GetTeamMembership(ctx, user.ID, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("mini app: get team: %w", err)
+	}
+	if membership == nil {
+		return nil, ErrForbidden
+	}
+	return membership, nil
+}
+
+func (s *Service) UpdateTeam(
+	ctx context.Context,
+	telegramUserID int64,
+	teamID uuid.UUID,
+	input UpdateTeamInput,
+) (*domain.TeamMembership, error) {
+	user, err := s.getUser(ctx, telegramUserID)
+	if err != nil {
+		return nil, err
+	}
+	membership, err := s.repository.GetTeamMembership(ctx, user.ID, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("mini app: get team membership: %w", err)
+	}
+	if membership == nil {
+		return nil, ErrForbidden
+	}
+	if !membership.IsOwner {
+		return nil, ErrForbidden
+	}
+
+	team := &membership.Team
+	if input.Name != nil {
+		name := strings.TrimSpace(*input.Name)
+		if utf8.RuneCountInString(name) < 2 || utf8.RuneCountInString(name) > 100 {
+			return nil, fmt.Errorf("%w: team name must contain 2 to 100 characters", ErrInvalidTeam)
+		}
+		team.Name = name
+	}
+	if input.Timezone != nil {
+		timezone := strings.TrimSpace(*input.Timezone)
+		if _, err := time.LoadLocation(timezone); err != nil {
+			return nil, fmt.Errorf("%w: invalid timezone", ErrInvalidTeam)
+		}
+		team.Timezone = timezone
+	}
+	if input.PublishLocalTime != nil {
+		team.PublishLocalTime = *input.PublishLocalTime
+	}
+	if input.Workdays != nil {
+		workdays, err := validateWorkdays(*input.Workdays)
+		if err != nil {
+			return nil, err
+		}
+		team.Workdays = workdays
+	}
+	if input.LatePolicy != nil {
+		latePolicy := strings.TrimSpace(*input.LatePolicy)
+		if latePolicy != domain.LatePolicyNextDigest && latePolicy != domain.LatePolicySeparateMessage {
+			return nil, fmt.Errorf("%w: unsupported late policy", ErrInvalidTeam)
+		}
+		team.LatePolicy = latePolicy
+	}
+
+	if err := s.repository.UpdateTeam(ctx, team); err != nil {
+		return nil, fmt.Errorf("mini app: update team: %w", err)
 	}
 	return membership, nil
 }

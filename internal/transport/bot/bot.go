@@ -41,7 +41,7 @@ type StandupIngestionService interface {
 	ProcessText(ctx context.Context, input parser.TextInput) (*domain.StandupPreview, error)
 }
 type StandupConfirmationService interface {
-	ConfirmNow(ctx context.Context, telegramUserID int64, submissionID uuid.UUID) error
+	ConfirmNow(ctx context.Context, telegramUserID int64, submissionID uuid.UUID) (*domain.UserStats, error)
 	Cancel(ctx context.Context, telegramUserID int64, submissionID uuid.UUID) error
 }
 
@@ -117,7 +117,7 @@ func (s *StandupTGBot) GetUpdates(ctx context.Context) error {
 // обрабатывает response от сервиса для формирования ответа юзеру
 func (s *StandupTGBot) answerToTG(resp *domain.StandupTGBotResponseDTO) {
 	msg := tgbotapi.NewMessage(resp.TargetChatID, resp.Text)
-	msg.ParseMode = tgbotapi.ModeMarkdownV2
+	msg.ParseMode = tgbotapi.ModeHTML
 
 	if _, err := s.bot.Send(msg); err != nil {
 		s.logger.Error("send failed", "error", err, "chat_id", resp.TargetChatID)

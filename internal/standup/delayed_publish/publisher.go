@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	"VoiceStandup.ai/internal/core/domain"
 	"github.com/google/uuid"
 )
 
@@ -29,12 +30,12 @@ type SubmissionRepository interface {
 
 // Gamification awards XP and updates streaks for a confirmed submission.
 type Gamification interface {
-	ApplyConfirmedSubmission(ctx context.Context, submissionID uuid.UUID) error
+	ApplyConfirmedSubmission(ctx context.Context, submissionID uuid.UUID) (*domain.UserStats, error)
 }
 
 // SubmissionPublisher is used by Worker and Service to publish a submission.
 type SubmissionPublisher interface {
-	Publish(ctx context.Context, submissionID uuid.UUID) error
+	Publish(ctx context.Context, submissionID uuid.UUID) (*domain.UserStats, error)
 }
 
 // Publisher confirms a submission and then applies its gamification effects.
@@ -56,12 +57,13 @@ func NewPublisher(repository PendingSubmissionConfirmer, gamification Gamificati
 
 // Publish moves a submission from pending to confirmed, then calculates XP and
 // streak effects.
-func (p *Publisher) Publish(ctx context.Context, submissionID uuid.UUID) error {
+func (p *Publisher) Publish(ctx context.Context, submissionID uuid.UUID) (*domain.UserStats, error) {
 	if err := p.repository.ConfirmSubmission(ctx, submissionID); err != nil {
-		return fmt.Errorf("confirm pending submission: %w", err)
+		return nil, fmt.Errorf("confirm pending submission: %w", err)
 	}
-	if err := p.gamification.ApplyConfirmedSubmission(ctx, submissionID); err != nil {
-		return fmt.Errorf("apply gamification: %w", err)
+	stats, err := p.gamification.ApplyConfirmedSubmission(ctx, submissionID)
+	if err != nil {
+		return nil, fmt.Errorf("apply gamification: %w", err)
 	}
-	return nil
+	return stats, nil
 }

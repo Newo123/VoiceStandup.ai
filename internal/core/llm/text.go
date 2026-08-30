@@ -38,8 +38,9 @@ func (t *TextProcessor) ProcessText(ctx context.Context, rawText string) (*domai
 		return nil, fmt.Errorf("llm: ошибка llm-обработки текста: %w", err)
 	}
 
+	clean := stripMarkdownCodeBlock(result)
 	var resp domain.StandupResponse
-	if err := json.Unmarshal([]byte(result), &resp); err != nil {
+	if err := json.Unmarshal([]byte(clean), &resp); err != nil {
 		return nil, fmt.Errorf("llm: ошибка парсинга ответа текстового процессора: %w", err)
 	}
 

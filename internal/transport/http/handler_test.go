@@ -69,8 +69,8 @@ func TestHandlerCreatesTeam(t *testing.T) {
 
 func TestHandlerRejectsUnknownJSONField(t *testing.T) {
 	handler := newTestHandler(t, &fakeMiniAppService{})
-	body := bytes.NewBufferString(`{"team_id":"` + uuid.NewString() + `","unexpected":true}`)
-	response := performAuthorizedRequest(t, handler, http.MethodPut, "/api/v1/me/active-team", body)
+	body := bytes.NewBufferString(`{"name":"Platform","unexpected":true}`)
+	response := performAuthorizedRequest(t, handler, http.MethodPatch, "/api/v1/teams/"+uuid.NewString(), body)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
@@ -163,8 +163,26 @@ func (s *fakeMiniAppService) CreateTeam(
 func (s *fakeMiniAppService) SelectActiveTeam(context.Context, int64, uuid.UUID) (*domain.TeamMembership, error) {
 	return s.selected, nil
 }
+func (s *fakeMiniAppService) ListUsers(context.Context) ([]domain.Users, error) {
+	return nil, nil
+}
+func (s *fakeMiniAppService) GetUserByID(context.Context, uuid.UUID) (*domain.Users, error) {
+	return nil, nil
+}
+func (s *fakeMiniAppService) GetTeam(context.Context, int64, uuid.UUID) (*domain.TeamMembership, error) {
+	return nil, nil
+}
+func (s *fakeMiniAppService) UpdateTeam(context.Context, int64, uuid.UUID, miniapp.UpdateTeamInput) (*domain.TeamMembership, error) {
+	return nil, nil
+}
 func (s *fakeMiniAppService) GetTeamMembers(context.Context, int64, uuid.UUID) ([]domain.TeamMemberStats, error) {
 	return s.members, s.membersErr
+}
+func (s *fakeMiniAppService) ListReports(context.Context, int64) ([]domain.Submissions, error) {
+	return nil, nil
+}
+func (s *fakeMiniAppService) GetReport(context.Context, int64, uuid.UUID) (*domain.Submissions, error) {
+	return nil, nil
 }
 
 var _ MiniAppService = (*fakeMiniAppService)(nil)
