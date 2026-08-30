@@ -11,6 +11,12 @@ import (
 
 const defaultConnectTimeout = 5 * time.Second
 
+const (
+	defaultHTTPAddress         = ":8080"
+	defaultHTTPShutdownTimeout = 5 * time.Second
+	defaultTelegramAuthMaxAge  = 5 * time.Minute
+)
+
 // Config содержит настройки, необходимые для запуска приложения.
 type Config struct {
 	Postgres Postgres
@@ -18,6 +24,7 @@ type Config struct {
 	LLM      LLM
 	STT      STT
 	Telegram Telegram
+	HTTP     HTTP
 }
 
 type Postgres struct {
@@ -51,6 +58,12 @@ type Telegram struct {
 	BotToken string
 }
 
+type HTTP struct {
+	Address         string
+	ShutdownTimeout time.Duration
+	TelegramAuthAge time.Duration
+}
+
 // Load читает конфигурацию из переменных окружения и проверяет настройки
 // инфраструктуры, необходимые приложению.
 func Load() (Config, error) {
@@ -79,6 +92,16 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	httpShutdownTimeout, err := envDuration("HTTP_SHUTDOWN_TIMEOUT", defaultHTTPShutdownTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+
+	telegramAuthAge, err := envDuration("TELEGRAM_AUTH_MAX_AGE", defaultTelegramAuthMaxAge)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
 		Postgres: Postgres{
 			URL:            strings.TrimSpace(os.Getenv("DATABASE_URL")),
@@ -102,6 +125,11 @@ func Load() (Config, error) {
 		},
 		Telegram: Telegram{
 			BotToken: os.Getenv("BOT_TOKEN"),
+		},
+		HTTP: HTTP{
+			Address:         envString("HTTP_ADDR", defaultHTTPAddress),
+			ShutdownTimeout: httpShutdownTimeout,
+			TelegramAuthAge: telegramAuthAge,
 		},
 	}
 
@@ -139,6 +167,15 @@ func (c Config) Validate() error {
 	}
 	if c.Telegram.BotToken == "" {
 		return errors.New("BOT_TOKEN is required")
+	}
+	if c.HTTP.Address == "" {
+		return errors.New("HTTP_ADDR is required")
+	}
+	if c.HTTP.ShutdownTimeout <= 0 {
+		return errors.New("HTTP_SHUTDOWN_TIMEOUT must be positive")
+	}
+	if c.HTTP.TelegramAuthAge <= 0 {
+		return errors.New("TELEGRAM_AUTH_MAX_AGE must be positive")
 	}
 	if c.LLM.Timeout <= 0 {
 		return errors.New("LLM_TIMEOUT must be positive")

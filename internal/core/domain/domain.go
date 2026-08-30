@@ -19,6 +19,9 @@ const (
 
 	SubmissionFormatText  = "text"
 	SubmissionFormatVoice = "voice"
+
+	LatePolicyNextDigest      = "NEXT_DIGEST"
+	LatePolicySeparateMessage = "SEPARATE_MESSAGE"
 )
 
 // StandupResponse — DTO структурированного стендап-отчёта, полученного от LLM.
@@ -94,6 +97,24 @@ type TeamMembers struct {
 	Status    string
 	CreatedAt time.Time
 	DeletedAt *time.Time
+}
+
+type TeamMembership struct {
+	Team    Teams
+	Role    string
+	IsOwner bool
+}
+
+type TeamMemberStats struct {
+	UserID        uuid.UUID
+	Username      string
+	DisplayName   string
+	Role          string
+	IsOwner       bool
+	XP            int
+	Level         int
+	CurrentStreak int
+	BestStreak    int
 }
 
 type TelegramUpdates struct {
