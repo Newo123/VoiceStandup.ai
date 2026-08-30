@@ -72,6 +72,9 @@ func TestServiceChecksMembershipBeforeTeamAccess(t *testing.T) {
 	if _, err := service.SelectActiveTeam(context.Background(), user.TelegramUserID, teamID); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("SelectActiveTeam() error = %v, want %v", err, ErrForbidden)
 	}
+	if _, err := service.GetTeam(context.Background(), user.TelegramUserID, teamID); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("GetTeam() error = %v, want %v", err, ErrForbidden)
+	}
 	if _, err := service.GetTeamMembers(context.Background(), user.TelegramUserID, teamID); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("GetTeamMembers() error = %v, want %v", err, ErrForbidden)
 	}
@@ -91,6 +94,21 @@ func TestServiceSelectsMemberTeam(t *testing.T) {
 	}
 	if repository.activeTeam != teamID {
 		t.Errorf("active team = %s, want %s", repository.activeTeam, teamID)
+	}
+}
+
+func TestServiceGetTeam(t *testing.T) {
+	repository, user := readyRepository()
+	teamID := uuid.New()
+	repository.membership = &domain.TeamMembership{Team: domain.Teams{ID: teamID, Name: "Backend"}}
+	service := newTestService(t, repository)
+
+	membership, err := service.GetTeam(context.Background(), user.TelegramUserID, teamID)
+	if err != nil {
+		t.Fatalf("GetTeam() error = %v", err)
+	}
+	if membership.Team.ID != teamID {
+		t.Errorf("team ID = %s, want %s", membership.Team.ID, teamID)
 	}
 }
 
@@ -154,4 +172,19 @@ func (r *fakeRepository) SetActiveTeam(_ context.Context, user *domain.Users, te
 	user.ActiveTeamID = &teamID
 	r.activeTeam = teamID
 	return nil
+}
+func (r *fakeRepository) UpdateTeam(context.Context, *domain.Teams) error {
+	return nil
+}
+func (r *fakeRepository) GetSubmissionsByUserID(context.Context, uuid.UUID) ([]domain.Submissions, error) {
+	return nil, nil
+}
+func (r *fakeRepository) GetSubmissionByID(context.Context, uuid.UUID) (*domain.Submissions, error) {
+	return nil, nil
+}
+func (r *fakeRepository) GetAllUsers(context.Context) ([]domain.Users, error) {
+	return nil, nil
+}
+func (r *fakeRepository) GetUserByID(context.Context, uuid.UUID) (*domain.Users, error) {
+	return nil, nil
 }
