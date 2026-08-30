@@ -69,8 +69,8 @@ func TestHandlerCreatesTeam(t *testing.T) {
 
 func TestHandlerRejectsUnknownJSONField(t *testing.T) {
 	handler := newTestHandler(t, &fakeMiniAppService{})
-	body := bytes.NewBufferString(`{"team_id":"` + uuid.NewString() + `","unexpected":true}`)
-	response := performAuthorizedRequest(t, handler, http.MethodPut, "/api/v1/me/active-team", body)
+	body := bytes.NewBufferString(`{"name":"Platform","unexpected":true}`)
+	response := performAuthorizedRequest(t, handler, http.MethodPatch, "/api/v1/teams/"+uuid.NewString(), body)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
