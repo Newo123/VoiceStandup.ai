@@ -31,7 +31,7 @@ func TestFormatStandupPreviewEscapesUserContent(t *testing.T) {
 	if !strings.Contains(message, "Исправил &lt;handler&gt;") || !strings.Contains(message, "API &amp; токен") {
 		t.Errorf("message does not escape HTML: %q", message)
 	}
-	if !strings.Contains(message, "<b>Что в планах:</b>\n—") {
+	if !strings.Contains(message, "<b>🧐Что в планах:</b>\n—") {
 		t.Errorf("message does not render empty section: %q", message)
 	}
 }
